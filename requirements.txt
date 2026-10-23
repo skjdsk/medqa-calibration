@@ -1,0 +1,12 @@
+# Colab 已预装 torch（带 CUDA），不要在这里重装 torch，否则可能装成不匹配 CUDA 的版本。
+# 如果在自己的机器上运行，请先按 https://pytorch.org 安装对应 CUDA 的 torch。
+transformers>=4.46
+peft>=0.13
+bitsandbytes>=0.44
+accelerate>=1.0
+datasets>=2.20
+pandas>=2.0
+numpy>=1.24
+matplotlib>=3.7
+tqdm>=4.66
+pytest>=8.0
