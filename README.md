@@ -2,6 +2,9 @@
 
 比较 SFT / DPO / GRPO（QLoRA）对 Qwen2.5-3B-Instruct 在医学选择题上**校准**的影响。本仓库是评估部分。
 
+## 整体流程
+![实验流程图](docs/pipeline.webp)
+
 ## 文件
 | 文件 | 作用 |
 |---|---|
