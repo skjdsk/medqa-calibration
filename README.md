@@ -12,7 +12,13 @@
 | `eval/evaluate.py` | 4-bit 加载模型（可叠加 LoRA），用选项字母的 logits 计算概率，输出每题明细 CSV |
 | `eval/metrics.py` | 只读明细 CSV，计算准确率 / ECE / Brier / NLL / 高置信错误等，画可靠性图 |
 | `eval/test_metrics.py` | 手算小例子验证指标公式 |
-| `notebooks/eval_base.ipynb` | Colab 一键运行 |
+| `notebooks/eval_base.ipynb` | Colab 一键运行评估 |
+| `train/grpo/grpo.py` | GRPO 试跑主程序（QLoRA + TRL `GRPOTrainer`），记录耗时 / 显存 / reward 等指标 |
+| `train/grpo/grpo_data.py` | 加载 MedQA **train** split，构造训练 prompt |
+| `train/grpo/rewards.py` | 提取 `Answer: X` 并打 0/1 分；监控格式正确率、组内 reward 全相同比例等 |
+| `train/grpo/test_rewards.py` | 打分函数单元测试 |
+| `train/grpo/estimate.py` | （试跑专用）用试跑实测耗时估算正式训练的 GPU 小时 |
+| `notebooks/grpo_pilot.ipynb` | Colab 一键运行 GRPO 试跑 |
 
 ## 常用命令（先 `cd calibration`，在这个文件夹里运行）
 ```bash
@@ -21,6 +27,9 @@ python -m eval.data_loaders --dataset medqa --n 3             # 只看数据样�
 python -m eval.evaluate --dataset medqa medmcqa pubmedqa \
     --adapter /path/to/adapter --model_name sft_seed1 --out_dir results/
 python -m eval.metrics --pred_csv "results/preds_*.csv" --out_dir results/metrics
+
+python -m pytest -q train/grpo/test_rewards.py                # 验证打分函数
+python -m train.grpo.grpo --n_questions 64 --max_steps 30 --output_dir outputs/grpo_pilot   # GRPO 试跑（需要 GPU）
 ```
 
 ## 明细 CSV 字段

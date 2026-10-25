@@ -10,3 +10,4 @@ numpy>=1.24
 matplotlib>=3.7
 tqdm>=4.66
 pytest>=8.0
+trl[peft,quantization]==1.16.0
