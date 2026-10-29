@@ -1,0 +1,174 @@
+{
+  "created_at": "2026-10-25T22:27:28",
+  "gpu_name": "Tesla T4",
+  "environment": {
+    "gpu_name": "Tesla T4",
+    "gpu_compute_capability": "7.5",
+    "gpu_total_memory_gb": 14.56,
+    "precision": "fp16",
+    "use_bf16": false,
+    "python": "3.13.16",
+    "torch": "2.11.0+cu130",
+    "cuda": "13.0",
+    "trl": "1.16.0",
+    "transformers": "5.20.2",
+    "peft": "0.21.2",
+    "bitsandbytes": "0.50.2"
+  },
+  "trl_version": "1.16.0",
+  "config": {
+    "model_name": "Qwen/Qwen2.5-3B-Instruct",
+    "n_questions": 64,
+    "seed": 42,
+    "lora_r": 16,
+    "lora_alpha": 32,
+    "lora_dropout": 0.05,
+    "lora_target_modules": "all-linear",
+    "lora_param_dtype": "fp32",
+    "num_generations": 4,
+    "max_completion_length": 512,
+    "max_steps": 30,
+    "learning_rate": 1e-05,
+    "beta": 0.04,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "loss_type": null,
+    "scale_rewards": null,
+    "per_device_train_batch_size": 4,
+    "gradient_accumulation_steps": 4,
+    "no_gradient_checkpointing": false,
+    "use_vllm": false,
+    "vllm_gpu_memory_utilization": 0.3,
+    "vllm_max_model_length": 2048,
+    "output_dir": "/content/outputs/grpo_pilot",
+    "drive_dir": "/content/drive/MyDrive/medqa-calibration/grpo_pilot",
+    "run_name": "",
+    "num_samples": 2,
+    "warmup_skip": 2,
+    "report_last_k": 5
+  },
+  "effective_grpo_config": {
+    "num_generations": 4,
+    "max_completion_length": 512,
+    "per_device_train_batch_size": 4,
+    "gradient_accumulation_steps": 4,
+    "generation_batch_size": 16,
+    "steps_per_generation": 4,
+    "learning_rate": 1e-05,
+    "lr_scheduler_type": "linear",
+    "beta": 0.04,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 0,
+    "loss_type": "dapo",
+    "scale_rewards": "group",
+    "num_iterations": 1,
+    "epsilon": 0.2,
+    "bf16": false,
+    "fp16": true,
+    "gradient_checkpointing": true,
+    "use_vllm": false,
+    "max_steps": 30,
+    "seed": 42
+  },
+  "dropped_config_keys": [],
+  "derived": {
+    "num_gpus": 1,
+    "completions_per_step_per_gpu": 16,
+    "completions_per_step": 16,
+    "prompts_per_step": 4,
+    "pilot_passes_over_subset": 1.875,
+    "prompt_tokens": {
+      "min": 166,
+      "mean": 274.625,
+      "p95": 396,
+      "max": 540
+    }
+  },
+  "timing": {
+    "num_steps_logged": 30,
+    "warmup_steps_skipped": 2,
+    "avg_step_time_s_excl_warmup": 97.68114285714286,
+    "avg_step_time_s_all": 97.69853333333334,
+    "first_step_time_s": 99.229,
+    "max_step_time_s": 106.534,
+    "total_train_time_s": 2931.540162933
+  },
+  "memory": {
+    "peak_mem_allocated_gb_max_over_steps": 3.832,
+    "peak_mem_reserved_gb_max_over_steps": 4.324,
+    "gpu_total_memory_gb": 14.56
+  },
+  "reward": {
+    "first_step": 0.4375,
+    "last_5_steps_mean": 0.375,
+    "all_steps_mean": 0.42083333333333334
+  },
+  "format_rate": {
+    "first_step": 1.0,
+    "last_5_steps_mean": 0.875
+  },
+  "truncated_frac_mean": 0.10208333333333333,
+  "frac_groups_all_same_mean": 0.39166666666666666,
+  "frac_groups_all_same_last_k_mean": 0.3,
+  "mean_completion_tokens_mean": 366.63125,
+  "stability": {
+    "nan_or_inf_loss_steps": 0,
+    "max_grad_norm": 0.2952343821525574,
+    "kl_last": 0.00017171009312733077,
+    "kl_max": 0.0001815683463064488
+  },
+  "samples_before": [
+    {
+      "answer": "C",
+      "pred": "D",
+      "reward": 0.0,
+      "num_tokens": 421,
+      "completion": "First, let's analyze the presence of anti-centromere antibodies and their associated symptoms and signs.\n\n1. Anti-centromere antibodies are associated with specific conditions, namely: \n   - Histiocytosis X\n   - Primary Sjögren’s syndrome\n   - Very rarely found in the general population, seen in less than 1% of the total population\n\n2. Clinical presentation of patients with anti-centromere antibodies includes:\n   - Symmetrical polyarthritis (typically in the hands)\n   - Raynaud’s phenomenon (pallor, cyanosis, and erythema of the hands seen)\n   - Hypercoagulable state (due to abnormally high levels of clotting factors and fibrinogen)\n   - Typical mitral valve insufficiency (associated with Histiocytosis X)\n\nNow, let's examine each option to determine the symptom or sign that would NOT be expected to be present:\n\nA. Pallor, cyanosis, and erythema of the hands - This would be a primary finding related to anti-centromere antibodies. Hence, it would be expected to be present.\n\nB. Blanching vascular abnormalities - These are arguably found as part of Raynaud’s phenomenon, which is a condition in which the blood vessels in the extremities are too sensitive to cold or emotion, leading to numbness and a change in skin color and temperature. Since anti-centromere antibodies are associated with Raynaud’s, this might be expected to be present as well.\n\nC. Hypercoagulable state - This clotting disorder is a hallmark finding with anti-centromere antibodies, thus also expected to be present.\n\nD. Heartburn and regurgitation - These symptoms do not correlate with anti-centromere antibodies. While other autoimmune conditions can present with GERD (gastroesophageal reflux disease), these symptoms are NOT common with anti-centromere antibody-positive conditions.\n\nSo, the symptom or sign that would NOT be expected to be present as part of anti-centromere antibodies is:\n\nAnswer: D"
+    },
+    {
+      "answer": "B",
+      "pred": "B",
+      "reward": 1.0,
+      "num_tokens": 287,
+      "completion": "To solve this problem, we should assess the symptoms and physical findings:\n\n1. **Symptoms**:\n   - Speech changes (slurred speech), which can relate to problems in the motor cortex area of the brain.\n   - Increased falls, which could indicate coordination or balance issues, possibly related to cerebellar ataxia.\n   \n2. **Physical Findings**:\n   - Pes cavus (high arch feet), which suggests a neurological disorder.\n   - Hammer toes, an example of a lower limb anomaly.\n   - Kyphoscoliosis (curved spine), which could be suggestive of spine and skeletal system abnormalities.\n\nInspecting the given options, these findings are most likely related to conditions involving the **CAG trinucleotide repeat**.\n\nThe key findings mentioned are:\n- Early onset with characteristic motor symptoms.\n- Neurological and musculoskeletal manifestations.\n\nConditions linked with CAG trinucleotide repeat include *Fragile X Syndrome*, Spinal Muscular Atrophy (SMA), and Huntington's Disease.\n\nGiven the child's young age and the severity and type of involvement (cerebellar ataxia, muscle and nerve abnormalities), the most likely trinucleotide repeat disorder is Spinal Muscular Atrophy (SMA). SMA carries the GAA trinucleotide repeat, so the relevant option here is B.\n\nTherefore, the correct answer is:\nAnswer: B"
+    }
+  ],
+  "samples_after": [
+    {
+      "answer": "C",
+      "pred": "D",
+      "reward": 0.0,
+      "num_tokens": 255,
+      "completion": "Step 1: Understand the context and question\nWe have a woman with anti-centromere antibodies. We need to find which symptom or sign would NOT be expected from this antibody presence, excluding it.\n\nStep 2: Analyze the symptom and sign options\n\nA. Pallor, cyanosis, and erythema of the hands – This often indicates systemic sclerosis, a disease associated with the presence of anti-centromere antibodies.\nB. Blanching vascular abnormalities – This is indicative of a skin condition associated with anti-centromere antibodies.\nC. Hypercoagulable state – This is notably a complication of systemic sclerosis, which is associated with anti-centromere antibodies.\nD. Heartburn and regurgitation – Heartburn and regurgitation do not directly relate to myocardial involvement, fever, or anti-centromere antibodies; these symptoms may more commonly be seen with GERD (gastroesophageal reflux disease).\n\nStep 3: Focus on the exception\n\nFrom the above analysis, heartburn and regurgitation (option D) are the least likely symptom or sign to be associated exclusively with anti-centromere antibodies. They more commonly accompany GERD and fail to be strongly linked with the presence of these antibodies.\n\nAnswer: D"
+    },
+    {
+      "answer": "B",
+      "pred": "C",
+      "reward": 0.0,
+      "num_tokens": 279,
+      "completion": "Step 1: Understand the patient's presentation\n- The 8-year-old's symptoms (slurred speech, frequent falls) could be indicative of an ataxia-telangiectasia.\n- The physical findings (pes cavus, hammer toes, kyphoscoliosis) are characteristic of this condition.\n\nStep 2: Recall the genetic background of ataxia-telangiectasia \n- This condition results from trinucleotide repeat expansion disorders, specifically in the genes for ataxia telangiectasia mutated (ATM) and telomerase reverse transcriptase (TERT).\n- The specific trinucleotide repeats involved are CAG/GCC in ATM and GAA/CAG in TERT. \n\nStep 3: Identify the trinucleotide repeat \n- The child's condition matches with ataxia-telangiectasia, but the trinucleotide repeat in the question's context is CAG/GCC, referring to the ATM repeat.\n\nStep 4: Match the relevant trinucleotide repeat to the options\n- The CAG repeat in the ATM gene is the relevant sequence in the question.\n- CAG/GCC applies to the ATM trinucleotide repeat.\n\nConclusion: The child is likely to have a trinucleotide repeat in the CAG/GCC sequence of the ATM gene.\n\nAnswer: C"
+    }
+  ],
+  "full_training_estimate_1_epoch": {
+    "num_questions": 10178,
+    "epochs": 1,
+    "num_generations": 4,
+    "per_device_train_batch_size": 4,
+    "gradient_accumulation_steps": 4,
+    "num_gpus": 1,
+    "completions_per_step": 16,
+    "prompts_per_step": 4,
+    "total_steps": 2545,
+    "sec_per_step_pilot": 97.68114285714286,
+    "pilot_completions_per_step": 16,
+    "length_factor": 1.0,
+    "overhead_factor": 1.15,
+    "sec_per_step_estimated": 97.68114285714286,
+    "wall_hours": 79.41341246031746,
+    "gpu_hours": 79.41341246031746,
+    "formula": "C = per_device_bs × grad_accum × num_gpus（每步回答数）; P = C / num_generations（每步题数）; S = ceil(num_questions × epochs / P)（总步数）; t = t_pilot × (per_device_bs × grad_accum) / C_pilot_per_gpu × length_factor（每步秒数）; wall_hours = S × t × overhead_factor / 3600; gpu_hours = wall_hours × num_gpus"
+  },
+  "estimate_formula": "C = per_device_bs × grad_accum × num_gpus（每步回答数）; P = C / num_generations（每步题数）; S = ceil(num_questions × epochs / P)（总步数）; t = t_pilot × (per_device_bs × grad_accum) / C_pilot_per_gpu × length_factor（每步秒数）; wall_hours = S × t × overhead_factor / 3600; gpu_hours = wall_hours × num_gpus",
+  "run_name": "grpo_pilot_Tesla_20261025_213538"
+}
