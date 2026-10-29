@@ -31,6 +31,9 @@ train/grpo/grpo.py —— GRPO 试跑（pilot）主程序
 【运行】（在 repo 根目录）
     python -m train.grpo.grpo --n_questions 64 --max_steps 30 --output_dir outputs/grpo_pilot \\
         --drive_dir /content/drive/MyDrive/medqa-calibration/grpo_pilot
+  正式训练（按 epoch 算步数，每 50 步存 checkpoint 到 Drive；Colab 断开后加 --resume 重跑同一条命令即可续上）：
+    python -m train.grpo.grpo --n_questions 2000 --num_train_epochs 1 --max_completion_length 768 \\
+        --output_dir /content/drive/MyDrive/medqa-calibration/grpo --save_steps 50 --resume
   全部参数见 python -m train.grpo.grpo --help
 """
 
@@ -102,7 +105,13 @@ def parse_args(argv=None) -> argparse.Namespace:
     # GRPO 核心参数
     p.add_argument("--num_generations", type=int, default=4, help="每题生成几个回答（组大小 G）")
     p.add_argument("--max_completion_length", type=int, default=512, help="回答最多多少 token")
-    p.add_argument("--max_steps", type=int, default=30)
+    p.add_argument("--max_steps", type=int, default=30, help="训练多少步；--num_train_epochs > 0 时忽略")
+    p.add_argument(
+        "--num_train_epochs",
+        type=float,
+        default=0,
+        help="> 0 时按 epoch 训练：总步数 = ceil(题数 × epochs / 每步题数)，覆盖 --max_steps（正式训练用）",
+    )
     p.add_argument("--learning_rate", type=float, default=1e-5)
     p.add_argument(
         "--beta",
@@ -140,7 +149,31 @@ def parse_args(argv=None) -> argparse.Namespace:
     # 输出
     p.add_argument("--output_dir", default="outputs/grpo_pilot")
     p.add_argument("--drive_dir", default="", help="Google Drive 目标目录；留空则不复制")
-    p.add_argument("--run_name", default="", help="Drive 里的子目录名；留空则自动用 GPU+时间")
+    p.add_argument(
+        "--run_name",
+        default="",
+        help="Drive 里的子目录名；留空则自动用 output_dir 的文件夹名 + GPU + 时间（如 grpo_Tesla_20261025_213538）",
+    )
+
+    # Checkpoint / 断点续跑（正式训练用；试跑默认不存 checkpoint）
+    p.add_argument(
+        "--save_steps",
+        type=int,
+        default=0,
+        help="每隔多少步存一次 checkpoint（含优化器状态，用于断点续跑）；0 = 不存（试跑默认）",
+    )
+    p.add_argument("--save_total_limit", type=int, default=2, help="最多保留几个 checkpoint，旧的自动删除")
+    p.add_argument(
+        "--checkpoint_dir",
+        default="",
+        help="checkpoint 存放目录；留空 = <output_dir>/checkpoints。"
+        "Colab 上建议放在 Google Drive，断开连接后才不会丢",
+    )
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help="从 checkpoint_dir 里最新的 checkpoint 继续训练；找不到 checkpoint 则从头开始",
+    )
     p.add_argument("--num_samples", type=int, default=2, help="训练前后各展示几个生成样例")
     p.add_argument("--warmup_skip", type=int, default=2, help="算平均每步耗时时跳过前几步（预热）")
     p.add_argument("--report_last_k", type=int, default=5, help="报告里'最后几步'的平均取几步")
@@ -226,7 +259,7 @@ def make_grpo_config(args, env):
 
     dtype_str = "bfloat16" if env["use_bf16"] else "float16"
     kwargs: dict[str, Any] = dict(
-        output_dir=args.output_dir,
+        output_dir=args.checkpoint_dir,  # Trainer 把 checkpoint-<step>/ 存在这里
         # ---- 训练步数 / 学习率 ----
         max_steps=args.max_steps,
         learning_rate=args.learning_rate,
@@ -255,7 +288,11 @@ def make_grpo_config(args, env):
         # ---- 日志 ----
         logging_steps=1,  # 每步都记录，回调里才能拿到每步的 KL 等指标
         report_to="none",
-        save_strategy="no",  # 试跑不存中间 checkpoint，结束时手动存 adapter
+        # 试跑（save_steps=0）不存中间 checkpoint，结束时手动存 adapter；
+        # 正式训练每 save_steps 步存一次（含优化器状态），只保留最近 save_total_limit 个
+        save_strategy="steps" if args.save_steps > 0 else "no",
+        save_steps=args.save_steps if args.save_steps > 0 else 500,
+        save_total_limit=args.save_total_limit,
         log_completions=False,
         remove_unused_columns=False,  # 保留 "answer" 列，打分函数要用
         # ---- vLLM（可选）----
@@ -328,6 +365,24 @@ TRL_LOG_KEYS = {
 }
 
 
+def _read_metrics_csv(path: Path) -> list[dict[str, Any]]:
+    """读回 metrics.csv（续跑时用）：数字列转回 int/float，空格子转成 None。"""
+    rows = []
+    with open(path, newline="", encoding="utf-8") as f:
+        for raw in csv.DictReader(f):
+            row: dict[str, Any] = {}
+            for k, v in raw.items():
+                if v in ("", None):
+                    row[k] = None
+                    continue
+                try:
+                    row[k] = int(v) if k in ("step", "n_completions", "n_groups") else float(v)
+                except ValueError:
+                    row[k] = v
+            rows.append(row)
+    return rows
+
+
 def _make_callback_class():
     from transformers import TrainerCallback
 
@@ -335,10 +390,11 @@ def _make_callback_class():
         """每个优化步：开始时清零显存峰值并计时；结束时汇总打分函数收集的指标；
         on_log 时合并 TRL 记录的 KL 等指标，写一行 CSV。"""
 
-        def __init__(self, tracker: RewardTracker, csv_path: Path, max_steps: int):
+        def __init__(self, tracker: RewardTracker, csv_path: Path, max_steps: int, resume: bool = False):
             self.tracker = tracker
             self.csv_path = Path(csv_path)
             self.max_steps = max_steps
+            self.resume = resume
             self.rows: list[dict[str, Any]] = []
             self._pending: dict[int, dict[str, Any]] = {}
             self._t0 = None
@@ -347,9 +403,15 @@ def _make_callback_class():
 
         def on_train_begin(self, args, state, control, **kwargs):
             self.csv_path.parent.mkdir(parents=True, exist_ok=True)
+            # 断点续跑：保留 checkpoint 之前的行（之后的步会重跑，丢掉），再接着往后写
+            if self.resume and self.csv_path.exists() and state.global_step > 0:
+                self.rows = [r for r in _read_metrics_csv(self.csv_path) if r["step"] <= state.global_step]
+                print(f"[续跑] 从第 {state.global_step} 步继续；metrics.csv 保留前 {len(self.rows)} 行")
             self._file = open(self.csv_path, "w", newline="", encoding="utf-8")
             self._writer = csv.DictWriter(self._file, fieldnames=CSV_FIELDS, extrasaction="ignore")
             self._writer.writeheader()
+            self._writer.writerows(self.rows)
+            self._file.flush()
             self.tracker.pop_step_stats()  # 清掉训练开始前可能残留的记录
 
         def on_step_begin(self, args, state, control, **kwargs):
@@ -608,8 +670,9 @@ def main(argv=None) -> None:
     set_seed(args.seed)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    args.checkpoint_dir = args.checkpoint_dir or str(output_dir / "checkpoints")
     gpu_tag = env["gpu_name"].replace("NVIDIA", "").strip().split()[0].replace("/", "-")
-    run_name = args.run_name or f"grpo_pilot_{gpu_tag}_{datetime.now():%Y%m%d_%H%M%S}"
+    run_name = args.run_name or f"{output_dir.name}_{gpu_tag}_{datetime.now():%Y%m%d_%H%M%S}"
 
     # ---------------- 1. tokenizer + 数据 ----------------
     # padding_side="left"：批量生成时 padding 放在左边，模型才能从 prompt 末尾接着写
@@ -619,6 +682,13 @@ def main(argv=None) -> None:
     raw_ds, train_ds = build_grpo_dataset(tokenizer, n=args.n_questions, seed=args.seed)
     print_samples(raw_ds, train_ds, tokenizer, index=0)
     prompt_stats = prompt_token_stats(tokenizer, train_ds)
+    args.n_questions = len(train_ds)  # n_questions=0 表示全量；这里记下实际题数
+    if args.num_train_epochs > 0:
+        args.max_steps = math.ceil(args.n_questions * args.num_train_epochs / batch_info["prompts_per_step"])
+        print(
+            f"[步数] {args.n_questions} 题 × {args.num_train_epochs} epoch ÷ 每步 "
+            f"{batch_info['prompts_per_step']} 题 → max_steps = {args.max_steps}"
+        )
 
     # ---------------- 2. 量化 + LoRA 配置 ----------------
     compute_dtype = torch.bfloat16 if env["use_bf16"] else torch.float16
@@ -662,7 +732,19 @@ def main(argv=None) -> None:
     # 把模型名字符串 + quantization_config + peft_config 交给 TRL，由 TRL 负责：
     #   用 4-bit 加载模型 → 套上 LoRA → beta>0 时用"关掉 LoRA 的同一个模型"当参考模型（不额外占显存）
     PilotMetricsCallback = _make_callback_class()
-    callback = PilotMetricsCallback(tracker, output_dir / "metrics.csv", args.max_steps)
+    resume_ckpt = None
+    if args.resume:
+        from transformers.trainer_utils import get_last_checkpoint
+
+        if Path(args.checkpoint_dir).is_dir():
+            resume_ckpt = get_last_checkpoint(args.checkpoint_dir)
+        if resume_ckpt:
+            print(f"[续跑] 找到 checkpoint：{resume_ckpt}")
+        else:
+            print(f"[续跑] {args.checkpoint_dir} 里没有 checkpoint，从头开始训练")
+    callback = PilotMetricsCallback(
+        tracker, output_dir / "metrics.csv", args.max_steps, resume=resume_ckpt is not None
+    )
     trainer = GRPOTrainer(
         model=args.model_name,
         reward_funcs=[reward_fn],  # 只有一个 0/1 正确性 reward，没有格式奖励
@@ -695,9 +777,11 @@ def main(argv=None) -> None:
     samples = {"before": show_samples(model, tokenizer, sample_examples, args, "【训练前】生成样例")}
 
     # ---------------- 6. 训练 ----------------
-    print(f"\n开始 GRPO 试跑：{args.max_steps} 步 …")
+    print(f"\n开始 GRPO 训练：{args.max_steps} 步 …")
+    if args.save_steps > 0:
+        print(f"[checkpoint] 每 {args.save_steps} 步存到 {args.checkpoint_dir}（保留最近 {args.save_total_limit} 个）")
     t0 = time.perf_counter()
-    trainer.train()
+    trainer.train(resume_from_checkpoint=resume_ckpt)  # 续跑时这次的耗时只算本次会话
     train_seconds = time.perf_counter() - t0
     print(f"训练结束，用时 {train_seconds / 60:.1f} 分钟")
 
