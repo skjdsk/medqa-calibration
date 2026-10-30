@@ -19,6 +19,7 @@
 | `train/grpo/test_rewards.py` | 打分函数单元测试 |
 | `train/grpo/estimate.py` | （试跑专用）用试跑实测耗时估算正式训练的 GPU 小时 |
 | `notebooks/grpo_pilot.ipynb` | Colab 一键运行 GRPO 试跑 |
+| `notebooks/grpo_train.ipynb` | Colab 运行 GRPO 正式训练（bf16 LoRA + vLLM，checkpoint 存 Drive，断线可续跑） |
 
 ## 常用命令（先 `cd calibration`，在这个文件夹里运行）
 ```bash
