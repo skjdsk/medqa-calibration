@@ -4,7 +4,7 @@ train/grpo/grpo.py —— GRPO 试跑（pilot）主程序
 【这个文件做什么（简单版）】
   1. 打印环境信息（GPU 型号、TRL / transformers / peft / bitsandbytes 版本），自动选择 bf16 或 fp16
   2. 从 MedQA **训练集**用固定种子抽 N 题（默认 64），构造 Qwen chat template 的 prompt
-  3. 用 4-bit（nf4）加载 Qwen2.5-3B-Instruct，加上 LoRA adapter（QLoRA）
+  3. 用 4-bit（nf4）加载 Qwen2.5-3B-Instruct，加上 LoRA adapter（QLoRA）；--quantization none 时改用 bf16 + LoRA
   4. 训练前：随机生成 2 个回答，打印内容和 reward
   5. 用 TRL 的 GRPOTrainer 训练 max_steps 步（默认 30），每一步记录：
         耗时、显存峰值、平均 reward / 标准差、组内 reward 全相同比例、回答长度、截断比例、格式正确率、KL
@@ -84,6 +84,16 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--model_name", default="Qwen/Qwen2.5-3B-Instruct")
     p.add_argument("--n_questions", type=int, default=64, help="从训练集抽多少题")
     p.add_argument("--seed", type=int, default=42, help="抽题和训练的随机种子")
+
+    # 量化
+    p.add_argument(
+        "--quantization",
+        choices=["4bit", "none"],
+        default="4bit",
+        help="4bit（默认）= QLoRA，基座 nf4；none = 基座不量化，用 bf16（A100）/ fp16（T4）+ LoRA。"
+        "QLoRA + --use_vllm 时，每步把 LoRA 合并进 4-bit 权重同步给 vLLM 会累积舍入误差，"
+        "A100 试跑中 importance_sampling_ratio 掉到接近 0、梯度消失；开 vLLM 时建议用 none",
+    )
 
     # LoRA（之后 SFT / DPO 用同样的设置）
     p.add_argument("--lora_r", type=int, default=16)
@@ -692,12 +702,18 @@ def main(argv=None) -> None:
 
     # ---------------- 2. 量化 + LoRA 配置 ----------------
     compute_dtype = torch.bfloat16 if env["use_bf16"] else torch.float16
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",  # QLoRA 论文用的 4-bit 格式
-        bnb_4bit_use_double_quant=True,  # 对量化常数再量化一次，再省一点显存
-        bnb_4bit_compute_dtype=compute_dtype,  # 实际矩阵乘法用 bf16（A100）或 fp16（T4）
-    )
+    if args.quantization == "4bit":
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",  # QLoRA 论文用的 4-bit 格式
+            bnb_4bit_use_double_quant=True,  # 对量化常数再量化一次，再省一点显存
+            bnb_4bit_compute_dtype=compute_dtype,  # 实际矩阵乘法用 bf16（A100）或 fp16（T4）
+        )
+        print("[量化] 4-bit nf4（QLoRA）")
+    else:
+        # 不量化：基座按 model_init_kwargs 里的 dtype（bf16 / fp16）加载，3B 模型约 6 GB
+        bnb_config = None
+        print(f"[量化] 不量化，基座用 {'bf16' if env['use_bf16'] else 'fp16'} + LoRA")
     target_modules = (
         "all-linear"
         if args.lora_target_modules.strip() == "all-linear"
@@ -730,7 +746,7 @@ def main(argv=None) -> None:
 
     # ---------------- 4. 构造 GRPOTrainer ----------------
     # 把模型名字符串 + quantization_config + peft_config 交给 TRL，由 TRL 负责：
-    #   用 4-bit 加载模型 → 套上 LoRA → beta>0 时用"关掉 LoRA 的同一个模型"当参考模型（不额外占显存）
+    #   加载模型（4-bit 或 bf16/fp16）→ 套上 LoRA → beta>0 时用"关掉 LoRA 的同一个模型"当参考模型（不额外占显存）
     PilotMetricsCallback = _make_callback_class()
     resume_ckpt = None
     if args.resume:
@@ -751,13 +767,13 @@ def main(argv=None) -> None:
         args=grpo_config,
         train_dataset=train_ds,
         processing_class=tokenizer,
-        quantization_config=bnb_config,
+        quantization_config=bnb_config,  # None = 不量化
         peft_config=lora_config,
         callbacks=[callback],
     )
 
     model = trainer.model
-    # TRL 1.16 会把 QLoRA 的 LoRA 参数转成 bf16。这里按需转回 fp32：
+    # TRL 1.16 会把 QLoRA 的 LoRA 参数转成 bf16（不量化时 PEFT 默认就是 fp32）。这里按需转回 fp32：
     #  - T4（fp16 混合精度）：必须是 fp32，否则 fp16 的梯度缩放/优化器会出问题
     #  - A100：fp32 存储可避免 1e-5 这种小学习率的更新被 bf16 精度"舍入掉"；多占的显存 < 0.5 GB
     if args.lora_param_dtype == "fp32":
@@ -769,7 +785,8 @@ def main(argv=None) -> None:
         print(f"[LoRA] 已把 {n_cast} 个可训练张量转为 fp32")
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_total = sum(p.numel() for p in model.parameters())
-    print(f"[LoRA] 可训练参数 {n_train / 1e6:.1f}M / 总参数 {n_total / 1e6:.0f}M（4-bit 权重按打包后计数）")
+    packed_note = "（4-bit 权重按打包后计数）" if args.quantization == "4bit" else ""
+    print(f"[LoRA] 可训练参数 {n_train / 1e6:.1f}M / 总参数 {n_total / 1e6:.0f}M{packed_note}")
     print(f"[显存] 模型加载后已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
 
     # ---------------- 5. 训练前样例 ----------------
