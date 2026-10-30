@@ -8,6 +8,7 @@
 ## 文件
 | 文件 | 作用 |
 |---|---|
+| `data/medqa_split.py` + `data/medqa_split_seed42.json` | MedQA train split 的固定划分：5000 题训练 + 500 题验证（SFT / DPO / GRPO 共用） |
 | `eval/data_loaders.py` | 加载 MedQA / MedMCQA / PubMedQA，统一成 (题目, 选项, 标准答案字母, id) |
 | `eval/evaluate.py` | 4-bit 加载模型（可叠加 LoRA），用选项字母的 logits 计算概率，输出每题明细 CSV |
 | `eval/metrics.py` | 只读明细 CSV，计算准确率 / ECE / Brier / NLL / 高置信错误等，画可靠性图 |
@@ -24,9 +25,12 @@
 ## 常用命令（先 `cd calibration`，在这个文件夹里运行）
 ```bash
 python -m pytest eval/test_metrics.py -q                      # 验证指标
+python -m pytest -q data/test_medqa_split.py                  # 验证 5000/500 划分
 python -m eval.data_loaders --dataset medqa --n 3             # 只看数据样例
 python -m eval.evaluate --dataset medqa medmcqa pubmedqa \
     --adapter /path/to/adapter --model_name sft_seed1 --out_dir results/
+python -m eval.evaluate --dataset medqa --medqa_subset val \
+    --adapter /path/to/adapter --model_name sft_seed1 --out_dir results/   # 在 500 题验证集上评估
 python -m eval.metrics --pred_csv "results/preds_*.csv" --out_dir results/metrics
 
 python -m pytest -q train/grpo/test_rewards.py                # 验证打分函数

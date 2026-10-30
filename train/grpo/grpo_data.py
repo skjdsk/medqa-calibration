@@ -3,7 +3,8 @@ train/grpo/grpo_data.py —— 加载 MedQA 训练集，并把每道题变成模
 
 【这个文件做什么（简单版）】
 1. 从 Hugging Face 下载 GBaker/MedQA-USMLE-4-options 的 **train** split（只允许 train，代码里写死了检查）。
-2. 用固定随机种子打乱后取前 N 题（N 默认 64），保证每次试跑抽到的是同一批题。
+2. 只取 data/medqa_split_seed42.json 里的 5000 道**训练题**（另外 500 道验证题绝对不用于训练），
+   再取其中前 N 题（N=0 表示全部 5000 题）。划分文件是固定的，所以不管训练 seed 是多少，用的都是同一批题。
 3. 把每道题拼成 Qwen 的对话格式（chat template）：
        system: 你是医学专家
        user:   题目 + 选项 A–D + "先一步步推理，最后单独一行写 Answer: X"
@@ -17,14 +18,21 @@ train/grpo/grpo_data.py —— 加载 MedQA 训练集，并把每道题变成模
 这样我们打印出来的 prompt 和模型真正看到的输入一字不差，方便和 eval/ 里的评估 prompt 对齐。
 
 【单独运行预览】（会下载 tokenizer，不需要 GPU）
-    python -m train.grpo.grpo_data --n 64 --seed 42
+    python -m train.grpo.grpo_data --n 64
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sys
+from pathlib import Path
 from typing import Any
+
+# 让 "from data.xxx import ..." 不管用 python -m 还是直接运行都能工作
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from data.medqa_split import SPLIT_FILE, check_dataset_size, load_split  # noqa: E402
 
 DATASET_NAME = "GBaker/MedQA-USMLE-4-options"
 ALLOWED_SPLIT = "train"  # 训练只能用 train split，绝对不能用 test
@@ -125,10 +133,11 @@ def convert_example(raw: dict[str, Any], tokenizer) -> dict[str, Any]:
     }
 
 
-def load_medqa_train_subset(n: int | None = 64, seed: int = 42, split: str = ALLOWED_SPLIT):
-    """加载 MedQA 训练集，并用固定种子随机抽 n 题。
+def load_medqa_train_subset(n: int | None = 64, split_file: str | Path = SPLIT_FILE, split: str = ALLOWED_SPLIT):
+    """加载 MedQA train split，只保留划分文件里的训练题（按划分文件里的顺序），再取前 n 题。
 
-    n=None 或 n<=0 或 n>=总题数 时返回全部训练题（正式训练时用）。
+    n=None 或 n<=0 或 n>=训练题数 时返回全部训练题（5000 题，正式训练时用）。
+    验证集的题不会出现在这里。
     """
     from datasets import load_dataset
 
@@ -138,18 +147,23 @@ def load_medqa_train_subset(n: int | None = 64, seed: int = 42, split: str = ALL
         )
 
     full = load_dataset(DATASET_NAME, split=split)
-    total = len(full)
+    split_info = load_split(split_file)
+    check_dataset_size(len(full), split_info)
+    train_idx = split_info["train_indices"]
+    total = len(train_idx)
     if n is None or n <= 0 or n >= total:
         n = total
-    # shuffle(seed) 是确定性的：同一个 seed + 同一个数据版本 → 每次抽到同一批题
-    subset = full.shuffle(seed=seed).select(range(n))
-    print(f"[数据] {DATASET_NAME} split={split}：共 {total} 题，用 seed={seed} 抽取 {n} 题")
+    subset = full.select(train_idx[:n])
+    print(
+        f"[数据] {DATASET_NAME} split={split} 共 {len(full)} 题；按 {Path(split_file).name} 取训练集 "
+        f"{total} 题中的前 {n} 题（验证集 {len(split_info['val_indices'])} 题不参与训练）"
+    )
     return subset
 
 
-def build_grpo_dataset(tokenizer, n: int | None = 64, seed: int = 42):
+def build_grpo_dataset(tokenizer, n: int | None = 64, split_file: str | Path = SPLIT_FILE):
     """返回 (原始子集, 转换后的 GRPO 数据集)。"""
-    raw = load_medqa_train_subset(n=n, seed=seed)
+    raw = load_medqa_train_subset(n=n, split_file=split_file)
     converted = raw.map(
         lambda ex: convert_example(ex, tokenizer),
         remove_columns=raw.column_names,  # 只保留我们构造的列，避免多余字段传进打分函数
@@ -196,15 +210,14 @@ def print_samples(raw, converted, tokenizer=None, index: int = 0) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="预览 GRPO 训练数据")
     parser.add_argument("--model_name", default="Qwen/Qwen2.5-3B-Instruct")
-    parser.add_argument("--n", type=int, default=64)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--n", type=int, default=64, help="取训练集前几题；0 = 全部 5000 题")
     parser.add_argument("--index", type=int, default=0, help="打印第几条样例")
     args = parser.parse_args()
 
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
-    raw, converted = build_grpo_dataset(tokenizer, n=args.n, seed=args.seed)
+    raw, converted = build_grpo_dataset(tokenizer, n=args.n)
     print_samples(raw, converted, tokenizer, index=args.index)
     counts = {L: converted["answer"].count(L) for L in LETTERS}
     print(f"答案分布：{counts}")

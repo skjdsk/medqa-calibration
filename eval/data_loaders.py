@@ -234,11 +234,13 @@ CONVERTERS = {"medqa": convert_medqa, "medmcqa": convert_medmcqa, "pubmedqa": co
 # ---------------------------------------------------------------------------
 def load_items(dataset: str, n: Optional[int] = None, num_options: Optional[int] = None,
                hf_name: Optional[str] = None, hf_config: Optional[str] = None,
-               split: Optional[str] = None, show_sample: bool = True) -> list[MCQItem]:
+               split: Optional[str] = None, show_sample: bool = True,
+               indices: Optional[list[int]] = None) -> list[MCQItem]:
     """
     加载一个数据集并转换为 MCQItem 列表。
     n：只取前 n 题（调试用）；None 表示全部。
     num_options：只对 MedQA 有意义（4 或 5）。
+    indices：只取这些行（例如 data/medqa_split_seed42.json 里的验证集行号）；question_id 仍用原来的行号。
     """
     from datasets import load_dataset  # 延迟导入：跑单元测试时不需要安装 datasets
 
@@ -248,15 +250,21 @@ def load_items(dataset: str, n: Optional[int] = None, num_options: Optional[int]
     print(f"[data] 加载 {dataset}: hf_name={src['hf_name']}, config={src['hf_config']}, split={src['split']}")
     ds = load_dataset(src["hf_name"], src["hf_config"], split=src["split"])
     print(f"[data] 共 {len(ds)} 行；字段：{ds.column_names}")
+    row_ids = list(range(len(ds)))
+    if indices is not None:
+        ds = ds.select(indices)
+        row_ids = list(indices)
+        print(f"[data] 按行号列表取 {len(ds)} 行")
     if n is not None:
         ds = ds.select(range(min(n, len(ds))))
+        row_ids = row_ids[: len(ds)]
 
     if show_sample and len(ds) > 0:
         print("[data] ===== 原始样例（第 0 行，请核对字段名）=====")
         print(json.dumps(_truncate(dict(ds[0])), ensure_ascii=False, indent=2, default=str))
 
     convert = CONVERTERS[dataset]
-    items = [convert(dict(row), i, num_options=num_options) for i, row in enumerate(ds)]
+    items = [convert(dict(row), i, num_options=num_options) for i, row in zip(row_ids, ds)]
 
     if show_sample and items:
         print("[data] ===== 转换后样例（请核对选项和标准答案是否对得上）=====")

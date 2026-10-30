@@ -32,8 +32,9 @@ train/grpo/grpo.py —— GRPO 试跑（pilot）主程序
     python -m train.grpo.grpo --n_questions 64 --max_steps 30 --output_dir outputs/grpo_pilot \\
         --drive_dir /content/drive/MyDrive/medqa-calibration/grpo_pilot
   正式训练（按 epoch 算步数，每 50 步存 checkpoint 到 Drive；Colab 断开后加 --resume 重跑同一条命令即可续上）：
-    python -m train.grpo.grpo --n_questions 2000 --num_train_epochs 1 --max_completion_length 768 \\
-        --output_dir /content/drive/MyDrive/medqa-calibration/grpo --save_steps 50 --resume
+    python -m train.grpo.grpo --n_questions 0 --seed 1 --num_train_epochs 1 --num_generations 8 \\
+        --gradient_accumulation_steps 8 --max_completion_length 1024 --quantization none --use_vllm \\
+        --output_dir /content/drive/MyDrive/medqa-calibration/grpo/<实验名> --save_steps 50 --resume
   全部参数见 python -m train.grpo.grpo --help
 """
 
@@ -62,6 +63,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import torch  # noqa: E402
 
+from data.medqa_split import N_TRAIN  # noqa: E402
 from train.grpo.estimate import FORMULA, estimate_gpu_hours  # noqa: E402
 from train.grpo.grpo_data import build_grpo_dataset, print_samples, prompt_token_stats  # noqa: E402
 from train.grpo.rewards import (  # noqa: E402
@@ -71,7 +73,7 @@ from train.grpo.rewards import (  # noqa: E402
     score_completion,
 )
 
-FULL_TRAIN_SIZE = 10178  # MedQA-USMLE-4-options 训练集题数，用于报告里的"正式训练"估算
+FULL_TRAIN_SIZE = N_TRAIN  # 训练集题数（data/medqa_split_seed42.json 的 5000 题），用于报告里的"正式训练"估算
 
 
 # ---------------------------------------------------------------------------
@@ -82,8 +84,18 @@ def parse_args(argv=None) -> argparse.Namespace:
 
     # 数据
     p.add_argument("--model_name", default="Qwen/Qwen2.5-3B-Instruct")
-    p.add_argument("--n_questions", type=int, default=64, help="从训练集抽多少题")
-    p.add_argument("--seed", type=int, default=42, help="抽题和训练的随机种子")
+    p.add_argument(
+        "--n_questions",
+        type=int,
+        default=64,
+        help="用训练集（data/medqa_split_seed42.json 里的 5000 题）的前几题；0 = 全部 5000 题",
+    )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="训练的随机种子（LoRA 初始化、生成采样、数据顺序）。用哪些题由划分文件决定，和这个 seed 无关",
+    )
 
     # 量化
     p.add_argument(
@@ -689,10 +701,10 @@ def main(argv=None) -> None:
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, padding_side="left")
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    raw_ds, train_ds = build_grpo_dataset(tokenizer, n=args.n_questions, seed=args.seed)
+    raw_ds, train_ds = build_grpo_dataset(tokenizer, n=args.n_questions)
     print_samples(raw_ds, train_ds, tokenizer, index=0)
     prompt_stats = prompt_token_stats(tokenizer, train_ds)
-    args.n_questions = len(train_ds)  # n_questions=0 表示全量；这里记下实际题数
+    args.n_questions = len(train_ds)  # n_questions=0 表示全部训练题；这里记下实际题数
     if args.num_train_epochs > 0:
         args.max_steps = math.ceil(args.n_questions * args.num_train_epochs / batch_info["prompts_per_step"])
         print(

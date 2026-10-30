@@ -322,6 +322,9 @@ def parse_args(argv=None):
     p.add_argument("--hf_name", default=None, help="覆盖数据集的 HF 名称（只在单个 --dataset 时使用）")
     p.add_argument("--hf_config", default=None)
     p.add_argument("--split", default=None)
+    p.add_argument("--medqa_subset", default=None, choices=["train", "val"],
+                   help="评估 MedQA train split 里 data/medqa_split_seed42.json 划出的训练集 / 验证集"
+                   "（默认不给 = 评估 test split）")
     p.add_argument("--batch_size", type=int, default=8)
     p.add_argument("--compute_dtype", default="auto", choices=["auto", "bf16", "fp16", "fp32"],
                    help="4-bit 计算精度；请和训练时 bnb_4bit_compute_dtype 一致")
@@ -342,6 +345,8 @@ def main(argv=None):
         score_cot()
     if args.hf_name and len(args.dataset) > 1:
         raise SystemExit("--hf_name 只能在单个 --dataset 时使用")
+    if args.medqa_subset and (args.dataset != ["medqa"] or args.num_options != 4 or args.split or args.hf_name):
+        raise SystemExit("--medqa_subset 只能和 --dataset medqa（4 选项）一起用，且不能再给 --split / --hf_name")
 
     model_name = args.model_name or (
         os.path.basename(os.path.normpath(args.adapter)) if args.adapter else "base")
@@ -355,8 +360,12 @@ def main(argv=None):
 
     for ds_name in args.dataset:
         t0 = time.time()
+        split, indices = args.split, None
+        if args.medqa_subset:
+            from data.medqa_split import load_split_indices
+            split, indices = "train", load_split_indices(args.medqa_subset)
         items = load_items(ds_name, n=args.n, num_options=args.num_options if ds_name == "medqa" else None,
-                           hf_name=args.hf_name, hf_config=args.hf_config, split=args.split)
+                           hf_name=args.hf_name, hf_config=args.hf_config, split=split, indices=indices)
         max_letters = max(len(it.options) for it in items)
         letter_table = build_letter_token_table(tokenizer, LETTERS[:max_letters])
         print(f"[tokens] 字母 → token id：{letter_table}")
@@ -376,6 +385,8 @@ def main(argv=None):
 
         df = build_rows(items, scores, model_name, args.mode, max_letters)
         tag = f"{ds_name}{args.num_options}" if ds_name == "medqa" else ds_name
+        if args.medqa_subset:
+            tag += f"_{args.medqa_subset}"
         csv_path = os.path.join(args.out_dir, f"preds_{model_name}_{tag}_{args.mode}.csv")
         df.to_csv(csv_path, index=False)
 
@@ -383,7 +394,8 @@ def main(argv=None):
         meta = {
             "model_name": model_name, "base_model": args.base_model, "adapter": args.adapter,
             "dataset": ds_name, "n_items": len(items), "num_options": args.num_options if ds_name == "medqa" else None,
-            "hf_source": dict(hf_name=args.hf_name, hf_config=args.hf_config, split=args.split),
+            "hf_source": dict(hf_name=args.hf_name, hf_config=args.hf_config, split=split),
+            "medqa_subset": args.medqa_subset,
             "mode": args.mode, "prompt_version": PROMPT_VERSION, "system_prompt": args.system_prompt,
             "compute_dtype": str(compute_dtype), "double_quant": not args.no_double_quant,
             "batch_size": args.batch_size, "seed": args.seed, "letter_token_ids": letter_table,
