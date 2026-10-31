@@ -31,10 +31,11 @@ train/grpo/grpo.py —— GRPO 试跑（pilot）主程序
 【运行】（在 repo 根目录）
     python -m train.grpo.grpo --n_questions 64 --max_steps 30 --output_dir outputs/grpo_pilot \\
         --drive_dir /content/drive/MyDrive/medqa-calibration/grpo_pilot
-  正式训练（按 epoch 算步数，每 50 步存 checkpoint 到 Drive；Colab 断开后加 --resume 重跑同一条命令即可续上）：
+  正式训练（按 epoch 算步数，每 100 步存 checkpoint 到 Drive；Colab 断开后加 --resume 重跑同一条命令即可续上）：
     python -m train.grpo.grpo --n_questions 0 --seed 1 --num_train_epochs 1 --num_generations 8 \\
         --gradient_accumulation_steps 8 --max_completion_length 1024 --quantization none --use_vllm \\
-        --output_dir /content/drive/MyDrive/medqa-calibration/grpo/<实验名> --save_steps 50 --resume
+        --output_dir /content/drive/MyDrive/medqa-calibration/grpo/<实验名> --save_steps 100 --resume
+  先只跑前 300 步看看（学习率计划不变；之后去掉 --stop_after_step 原样重跑即可接着跑完）：加 --stop_after_step 300
   全部参数见 python -m train.grpo.grpo --help
 """
 
@@ -195,6 +196,13 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--resume",
         action="store_true",
         help="从 checkpoint_dir 里最新的 checkpoint 继续训练；找不到 checkpoint 则从头开始",
+    )
+    p.add_argument(
+        "--stop_after_step",
+        type=int,
+        default=0,
+        help="> 0 时训练到这一步就存 checkpoint 并停下（学习率计划仍按完整步数，不变）；"
+        "用来先看前 N 步，之后去掉这个参数加 --resume 即可接着跑完。0 = 不提前停",
     )
     p.add_argument("--num_samples", type=int, default=2, help="训练前后各展示几个生成样例")
     p.add_argument("--warmup_skip", type=int, default=2, help="算平均每步耗时时跳过前几步（预热）")
@@ -487,7 +495,19 @@ def _make_callback_class():
                 flush=True,
             )
 
-    return PilotMetricsCallback
+    class StopAfterStepCallback(TrainerCallback):
+        """训练到第 stop_step 步：存一次 checkpoint 再停下。不改 max_steps，所以学习率计划和完整训练完全一样。"""
+
+        def __init__(self, stop_step: int):
+            self.stop_step = stop_step
+
+        def on_step_end(self, args, state, control, **kwargs):
+            if state.global_step >= self.stop_step:
+                control.should_save = True
+                control.should_training_stop = True
+            return control
+
+    return PilotMetricsCallback, StopAfterStepCallback
 
 
 # ---------------------------------------------------------------------------
@@ -759,7 +779,7 @@ def main(argv=None) -> None:
     # ---------------- 4. 构造 GRPOTrainer ----------------
     # 把模型名字符串 + quantization_config + peft_config 交给 TRL，由 TRL 负责：
     #   加载模型（4-bit 或 bf16/fp16）→ 套上 LoRA → beta>0 时用"关掉 LoRA 的同一个模型"当参考模型（不额外占显存）
-    PilotMetricsCallback = _make_callback_class()
+    PilotMetricsCallback, StopAfterStepCallback = _make_callback_class()
     resume_ckpt = None
     if args.resume:
         from transformers.trainer_utils import get_last_checkpoint
@@ -773,6 +793,16 @@ def main(argv=None) -> None:
     callback = PilotMetricsCallback(
         tracker, output_dir / "metrics.csv", args.max_steps, resume=resume_ckpt is not None
     )
+    callbacks = [callback]
+    stop_early = 0 < args.stop_after_step < args.max_steps
+    if stop_early:
+        if args.save_steps <= 0:
+            raise SystemExit("--stop_after_step 需要 --save_steps > 0（停下前要存 checkpoint，之后才能接着跑）")
+        if resume_ckpt and int(Path(resume_ckpt).name.split("-")[-1]) >= args.stop_after_step:
+            raise SystemExit(f"[提前停] 已经有 {Path(resume_ckpt).name}，前 {args.stop_after_step} 步已经跑完；"
+                             f"要接着跑完请把 --stop_after_step 改成 0")
+        callbacks.append(StopAfterStepCallback(args.stop_after_step))
+        print(f"[提前停] 训练到第 {args.stop_after_step}/{args.max_steps} 步存 checkpoint 后停下（学习率计划不变）")
     trainer = GRPOTrainer(
         model=args.model_name,
         reward_funcs=[reward_fn],  # 只有一个 0/1 正确性 reward，没有格式奖励
@@ -781,7 +811,7 @@ def main(argv=None) -> None:
         processing_class=tokenizer,
         quantization_config=bnb_config,  # None = 不量化
         peft_config=lora_config,
-        callbacks=[callback],
+        callbacks=callbacks,
     )
 
     model = trainer.model
@@ -813,6 +843,13 @@ def main(argv=None) -> None:
     trainer.train(resume_from_checkpoint=resume_ckpt)  # 续跑时这次的耗时只算本次会话
     train_seconds = time.perf_counter() - t0
     print(f"训练结束，用时 {train_seconds / 60:.1f} 分钟")
+    if stop_early and trainer.state.global_step < args.max_steps:
+        # 还没训练完：不存最终 adapter / 报告（免得被当成训练完的模型），只画到目前为止的曲线
+        if callback.rows:
+            plot_curves(callback.rows, args.max_completion_length, output_dir / "curves.png")
+        print(f"[提前停] 停在第 {trainer.state.global_step}/{args.max_steps} 步，checkpoint 在 {args.checkpoint_dir}。"
+              f"要接着跑完：去掉 --stop_after_step，加 --resume 原样重跑")
+        return
 
     # ---------------- 7. 训练后样例 ----------------
     samples["after"] = show_samples(trainer.model, tokenizer, sample_examples, args, "【训练后】生成样例")
