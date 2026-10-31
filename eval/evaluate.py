@@ -72,16 +72,17 @@ def pick_compute_dtype(name: str) -> torch.dtype:
 
 
 def load_model_and_tokenizer(base_model: str, adapter: Optional[str], compute_dtype: torch.dtype,
-                             double_quant: bool = True):
+                             double_quant: bool = True, quantization: str = "4bit"):
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
     # 量化设置要和训练时 QLoRA 的 BitsAndBytesConfig 一致（nf4、double quant、compute dtype）
+    # quantization="none"：不量化，直接用 compute_dtype 加载（bf16 LoRA 训练的 adapter，例如 GRPO）
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_use_double_quant=double_quant,
         bnb_4bit_compute_dtype=compute_dtype,
-    )
+    ) if quantization == "4bit" else None
     # tokenizer 优先从 adapter 目录读取（训练时如果改过 tokenizer 会保存在那里），否则用基础模型的
     tok_src = adapter if adapter and os.path.exists(os.path.join(adapter, "tokenizer_config.json")) else base_model
     tokenizer = AutoTokenizer.from_pretrained(tok_src)
@@ -329,6 +330,8 @@ def parse_args(argv=None):
     p.add_argument("--compute_dtype", default="auto", choices=["auto", "bf16", "fp16", "fp32"],
                    help="4-bit 计算精度；请和训练时 bnb_4bit_compute_dtype 一致")
     p.add_argument("--no_double_quant", action="store_true", help="训练时没开 double quant 就加上这个")
+    p.add_argument("--quantization", default="4bit", choices=["4bit", "none"],
+                   help="基座加载方式：4bit（nf4，和 QLoRA 训练一致）或 none（bf16 不量化，和 bf16 LoRA 训练一致）")
     p.add_argument("--system_prompt", default=None, help="默认用 Qwen 模板自带的 system 消息")
     p.add_argument("--mode", default="direct", choices=["direct", "cot"])
     p.add_argument("--seed", type=int, default=42)
@@ -356,7 +359,8 @@ def main(argv=None):
     compute_dtype = pick_compute_dtype(args.compute_dtype)
     print(f"[model] base={args.base_model} adapter={args.adapter} dtype={compute_dtype} name={model_name}")
     model, tokenizer = load_model_and_tokenizer(args.base_model, args.adapter, compute_dtype,
-                                                double_quant=not args.no_double_quant)
+                                                double_quant=not args.no_double_quant,
+                                                quantization=args.quantization)
 
     for ds_name in args.dataset:
         t0 = time.time()
@@ -397,7 +401,8 @@ def main(argv=None):
             "hf_source": dict(hf_name=args.hf_name, hf_config=args.hf_config, split=split),
             "medqa_subset": args.medqa_subset,
             "mode": args.mode, "prompt_version": PROMPT_VERSION, "system_prompt": args.system_prompt,
-            "compute_dtype": str(compute_dtype), "double_quant": not args.no_double_quant,
+            "compute_dtype": str(compute_dtype), "quantization": args.quantization,
+            "double_quant": not args.no_double_quant if args.quantization == "4bit" else None,
             "batch_size": args.batch_size, "seed": args.seed, "letter_token_ids": letter_table,
             "torch": torch.__version__, "python": platform.python_version(),
             "gpu": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
