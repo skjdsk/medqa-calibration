@@ -1,0 +1,14 @@
+{
+  "candidate_questions": 5000,
+  "generated_answers": 40000,
+  "retained_questions": 3322,
+  "excluded_questions": 1678,
+  "retention_rate": 0.6644,
+  "eligible_correct_answers": 19528,
+  "eligible_wrong_answers": 20362,
+  "unparsed_answers": 109,
+  "truncated_answers": 2,
+  "sft_rows": 3322,
+  "dpo_pairs": 3322,
+  "validation_passed": true
+}

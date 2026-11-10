@@ -1,0 +1,8 @@
+{
+  "selection_seed": 42,
+  "sampling_config_sha256": "decd3d2f7b3937391595df827b40f6a4fec89b50781081097dc9e3f6908150dc",
+  "candidate_questions": 5000,
+  "retained_questions": 3322,
+  "excluded_questions": 1678,
+  "policy": "valid parsed answer, non-truncated; one random correct/incorrect pair"
+}

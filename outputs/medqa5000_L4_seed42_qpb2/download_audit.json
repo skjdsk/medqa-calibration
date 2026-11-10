@@ -1,0 +1,139 @@
+{
+  "passed": true,
+  "summary": {
+    "candidate_questions": 5000,
+    "generated_answers": 40000,
+    "retained_questions": 3322,
+    "excluded_questions": 1678,
+    "retention_rate": 0.6644,
+    "sft_rows": 3322,
+    "dpo_pairs": 3322,
+    "validation_passed": true,
+    "eligible_correct_answers": 19528,
+    "eligible_wrong_answers": 20362,
+    "unparsed_answers": 109,
+    "truncated_answers": 2
+  },
+  "extra_counts": {
+    "duplicate_answer_texts": 0,
+    "unparsed_answers": 109,
+    "truncated_answers": 2,
+    "eligible_correct_answers": 19528,
+    "eligible_wrong_answers": 20362,
+    "excluded_no_correct": 814,
+    "excluded_no_wrong": 864
+  },
+  "notebook_cells": [
+    {
+      "cell": 1,
+      "execution_count": 1,
+      "outputs": 1
+    },
+    {
+      "cell": 3,
+      "execution_count": 2,
+      "outputs": 1
+    },
+    {
+      "cell": 5,
+      "execution_count": 3,
+      "outputs": 1
+    },
+    {
+      "cell": 7,
+      "execution_count": 4,
+      "outputs": 18
+    },
+    {
+      "cell": 9,
+      "execution_count": 5,
+      "outputs": 1
+    },
+    {
+      "cell": 11,
+      "execution_count": 6,
+      "outputs": 3
+    },
+    {
+      "cell": 13,
+      "execution_count": 7,
+      "outputs": 3
+    },
+    {
+      "cell": 14,
+      "execution_count": 8,
+      "outputs": 2
+    }
+  ],
+  "notebook_errors": [],
+  "sampling_runs": [
+    {
+      "stage": "sample",
+      "gpu": "NVIDIA L4",
+      "command": [
+        "/usr/bin/python3",
+        "-u",
+        "-m",
+        "train.dpo.prepare",
+        "sample",
+        "--source",
+        "hf",
+        "--n_questions",
+        "5000",
+        "--questions_per_batch",
+        "2",
+        "--samples_per_batch",
+        "8",
+        "--max_new_tokens",
+        "1024",
+        "--temperature",
+        "1.0",
+        "--top_p",
+        "1.0",
+        "--seed",
+        "42",
+        "--quantization",
+        "none",
+        "--output_dir",
+        "/content/drive/MyDrive/medqa-calibration/outputs/medqa5000_L4_seed42_qpb2",
+        "--model",
+        "Qwen/Qwen2.5-3B-Instruct",
+        "--revision",
+        "main",
+        "--dataset_revision",
+        "main"
+      ],
+      "return_code": 0,
+      "seconds": 85431.4,
+      "peak_gpu_memory_mib": 12440.0,
+      "mean_gpu_util_percent": 91.07444534354279,
+      "log": "/content/drive/MyDrive/medqa-calibration/outputs/medqa5000_L4_seed42_qpb2/sample_20261104T024352295686Z.log"
+    }
+  ],
+  "examples": [
+    {
+      "question_id": "medqa4-1754",
+      "gold": "B",
+      "chosen_tail": " the symptoms of speech difficulty, gait issues, and musculoskeletal abnormalities align strongly with myotonic dystrophy, which is caused by a CTG/AGC (also known as GAA) repeat expansion.\n\nAnswer: B",
+      "rejected_tail": " a recognized trinucleotide repeat associated with a specific disease pattern.\n\nGiven the symptoms and the known association with a trinucleotide repeat, the most appropriate choice is CAG.\n\nAnswer: C"
+    },
+    {
+      "question_id": "medqa4-3718",
+      "gold": "C",
+      "chosen_tail": "for the extravasation of fluid. \n\nTherefore, the correct answer to the question \"Which of the following is most likely the primary mechanism of the development of edema in this patient?\" is:\nAnswer: C",
+      "rejected_tail": "dings would be the increased hydrostatic pressure within the affected brain regions secondary to the hemorrhagic lesion, leading to the cytotoxic and vasogenic edemas visible in the images.\n\nAnswer: D"
+    },
+    {
+      "question_id": "medqa4-1838",
+      "gold": "D",
+      "chosen_tail": "e symptoms. \n\nCognitive behavioral therapy (CBT) can help address potential psychological causes and assist in the adjustment strategies needed to manage functional abdominal pain symptoms.\n\nAnswer: D",
+      "rejected_tail": "sitivities or specific dietary triggers).\n\nBased on all these considerations, increasing fiber and oral hydration would likely be beneficial if the parent believes those measures will help.\n\nAnswer: A"
+    }
+  ],
+  "source": "C:\\Users\\RyanW\\OneDrive\\Desktop\\CS 5787 Deep Learning\\Final Project\\Colab backup\\medqa-calibration\\medqa-calibration\\outputs\\medqa5000_L4_seed42_qpb2",
+  "config_sha256": "decd3d2f7b3937391595df827b40f6a4fec89b50781081097dc9e3f6908150dc",
+  "limitations": [
+    "Final-answer correctness is checked; clinical validity of every reasoning step is not human-reviewed.",
+    "Model and dataset revision are recorded as main, not immutable commit hashes."
+  ]
+}
