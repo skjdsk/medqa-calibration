@@ -1,0 +1,180 @@
+{
+  "created_at": "2026-10-30T00:47:28",
+  "gpu_name": "NVIDIA A100-SXM4-40GB",
+  "environment": {
+    "gpu_name": "NVIDIA A100-SXM4-40GB",
+    "gpu_compute_capability": "8.0",
+    "gpu_total_memory_gb": 39.49,
+    "precision": "bf16",
+    "use_bf16": true,
+    "python": "3.13.16",
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "trl": "1.16.0",
+    "transformers": "5.20.2",
+    "peft": "0.21.2",
+    "bitsandbytes": "0.50.2"
+  },
+  "trl_version": "1.16.0",
+  "config": {
+    "model_name": "Qwen/Qwen2.5-3B-Instruct",
+    "n_questions": 64,
+    "seed": 42,
+    "quantization": "none",
+    "lora_r": 16,
+    "lora_alpha": 32,
+    "lora_dropout": 0.05,
+    "lora_target_modules": "all-linear",
+    "lora_param_dtype": "fp32",
+    "num_generations": 4,
+    "max_completion_length": 512,
+    "max_steps": 30,
+    "num_train_epochs": 0,
+    "learning_rate": 1e-05,
+    "beta": 0.04,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "loss_type": null,
+    "scale_rewards": null,
+    "per_device_train_batch_size": 4,
+    "gradient_accumulation_steps": 4,
+    "no_gradient_checkpointing": false,
+    "use_vllm": true,
+    "vllm_gpu_memory_utilization": 0.3,
+    "vllm_max_model_length": 2048,
+    "output_dir": "/content/outputs/grpo_pilot_bf16_vllm",
+    "drive_dir": "/content/drive/MyDrive/medqa-calibration/grpo_pilot",
+    "run_name": "",
+    "save_steps": 0,
+    "save_total_limit": 2,
+    "checkpoint_dir": "/content/outputs/grpo_pilot_bf16_vllm/checkpoints",
+    "resume": false,
+    "num_samples": 2,
+    "warmup_skip": 2,
+    "report_last_k": 5
+  },
+  "effective_grpo_config": {
+    "num_generations": 4,
+    "max_completion_length": 512,
+    "per_device_train_batch_size": 4,
+    "gradient_accumulation_steps": 4,
+    "generation_batch_size": 16,
+    "steps_per_generation": 4,
+    "learning_rate": 1e-05,
+    "lr_scheduler_type": "linear",
+    "beta": 0.04,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 0,
+    "loss_type": "dapo",
+    "scale_rewards": "group",
+    "num_iterations": 1,
+    "epsilon": 0.2,
+    "bf16": true,
+    "fp16": false,
+    "gradient_checkpointing": true,
+    "use_vllm": true,
+    "max_steps": 30,
+    "seed": 42
+  },
+  "dropped_config_keys": [],
+  "derived": {
+    "num_gpus": 1,
+    "completions_per_step_per_gpu": 16,
+    "completions_per_step": 16,
+    "prompts_per_step": 4,
+    "pilot_passes_over_subset": 1.875,
+    "prompt_tokens": {
+      "min": 166,
+      "mean": 274.625,
+      "p95": 396,
+      "max": 540
+    }
+  },
+  "timing": {
+    "num_steps_logged": 30,
+    "warmup_steps_skipped": 2,
+    "avg_step_time_s_excl_warmup": 8.559142857142858,
+    "avg_step_time_s_all": 8.5681,
+    "first_step_time_s": 9.223,
+    "max_step_time_s": 9.675,
+    "total_train_time_s": 257.318435914
+  },
+  "memory": {
+    "peak_mem_allocated_gb_max_over_steps": 19.173,
+    "peak_mem_reserved_gb_max_over_steps": 19.361,
+    "gpu_total_memory_gb": 39.49
+  },
+  "reward": {
+    "first_step": 0.375,
+    "last_5_steps_mean": 0.4625,
+    "all_steps_mean": 0.48333333333333334
+  },
+  "format_rate": {
+    "first_step": 0.8125,
+    "last_5_steps_mean": 0.9
+  },
+  "truncated_frac_mean": 0.0875,
+  "frac_groups_all_same_mean": 0.4,
+  "frac_groups_all_same_last_k_mean": 0.2,
+  "mean_completion_tokens_mean": 390.61875,
+  "stability": {
+    "nan_or_inf_loss_steps": 0,
+    "max_grad_norm": 0.292359322309494,
+    "kl_last": 0.0009129308018600568,
+    "kl_max": 0.0010183239646721631
+  },
+  "samples_before": [
+    {
+      "answer": "C",
+      "pred": "D",
+      "reward": 0.0,
+      "num_tokens": 292,
+      "completion": "Step 1: Understanding the context\nAnti-centromere antibodies are associated with a condition called CREST syndrome, which is a form of scleroderma. CREST syndrome, which stands for Calcinosis, Raynaud's phenomenon, Esophageal dysmotility, Sclerodactyly, and Telangiectasia, represents a specific subset of scleroderma.\n\nStep 2: Analyzing each option\nA. Pallor, cyanosis, and erythema of the hands\n- These symptoms could be seen in Raynaud’s phenomenon, a common symptom of CREST syndrome.\n\nB. Blanching vascular abnormalities\n- Blanching vascular abnormalities (spider angiomas, purpura) can be seen as a part of scleroderma.\n\nC. Hypercoagulable state\n- CREST syndrome can be associated with a hypercoagulable state due to the vasculitis and the systemic effects of the disease.\n\nD. Heartburn and regurgitation\n- These are common symptoms in gastroesophageal reflux disease (GERD) and are not directly related to CREST syndrome or its associated antibodies.\n\nStep 3: Confirming the final answer\nBased on the association of the anti-centromere antibodies with CREST syndrome, all of the symptoms and signs mentioned except for heartburn and regurgitation are expected to be part of the condition.\n\nAnswer: D"
+    },
+    {
+      "answer": "B",
+      "pred": "C",
+      "reward": 0.0,
+      "num_tokens": 380,
+      "completion": "Let's break down the clinical presentation and the given symptoms to understand this case.\n\n1. Slurred speech and falling more than normal might indicate neuromuscular issues.\n2. The presence of hammer toes can be a sign of an orthopedic condition or a neuromuscular disease.\n3. Kyphoscoliosis (kyposcoliosis) can be associated with a wide range of genetic disorders.\n\nAmong the trinucleotide repeat disorders that could present with neurological or orthopedic complexities like these, we'll focus on those that can seem similar at first to a trinucleotide repeat disease. Here's the checklist for each option:\n\n- **CGG repeat disorders:** Fragile X syndrome (significant neurodevelopmental issues but usually does not affect neuromusculature or skeletal issues).\n- **GAA repeat disorders:** Phenylketonuria (PKU) - typically presents with neurological and metabolic issues, not neuromusculature or skeletal anomalies).\n- **CAG repeat disorders:** Huntington disease and certain forms of ataxia (which have neurological aspects and can sometimes cause skeletal issues, like Hirschsprung disease).\n- **GCC repeat disorder:** There are no well-known human diseases known by GCC repeats.\n\nSeveral forms of ataxia, particularly Adolescent- or Adult- onset spinocerebellar ataxia (SCA), occur frequently and can affect the nervous system and neuromuscular junction, causing speech disorders and coordination issues, along with skeletal manifestations such as hammer toes and scoliosis. Common types of SCA involve CAG repeats, most notably affecting regions responsible for motor function and leading to ataxia.\n\nGiven the neuromuscular manifestations and skeletal abnormalities observed, the most likely trinucleotide repeat disease in this case is CAG repeats, which can lead to adult onset ataxia.\n\nAnswer: C"
+    }
+  ],
+  "samples_after": [
+    {
+      "answer": "C",
+      "pred": "D",
+      "reward": 0.0,
+      "num_tokens": 375,
+      "completion": "Step 1: Analysis of anti-centromere antibodies\nAnti-centromere antibodies are present in many patients with CREST syndrome, which is a subset of systemic sclerosis. Systemic sclerosis is an autoimmune disease characterized by a硬化性肺泡炎 (sclerosis of the alveoli) or pulmonary fibrosis, telangiectasia (dilation of the small blood vessels), calcinosis (soft tissue calcification), Raynaud's phenomenon, and esophageal dysfunction.\n\nStep 2: Evaluation of symptoms and signs for each option\n\nA. Pallor, cyanosis, and erythema of the hands\n- Raynaud's phenomenon is a classic sign of systemic sclerosis and is associated with the presence of anti-centromere antibodies. These are abnormal responses to cold or stress that cause the extremities to turn pale or blue and may then turn red. These symptoms are expected.\n\nB. Blanching vascular abnormalities\n- Systemic sclerosis can lead to vasoconstriction and subsequent blanching of the skin, including striae (stretch marks), purpura (purple spots), and florid palmar changes. The presence of anti-centromere antibodies would generally manifest vascular abnormalities, so this option is consistent with the disease.\n\nC. Hypercoagulable state\n- Anti-centromere antibodies are associated with the formation of fibrin and increased risk for thrombosis, making this a commonly seen symptom in patients with systemic sclerosis. This is consistent with the condition.\n\nD. Heartburn and regurgitation\n- Heartburn and regurgitation are typically related to gastric acid reflux or gastroesophageal reflux disease (GERD), not typical symptoms of systemic sclerosis or CREST syndrome. Therefore, dysmotility, which would cause these symptoms, would be unlikely in the context of systemic sclerosis.\n\nAnswer: D"
+    },
+    {
+      "answer": "B",
+      "pred": "C",
+      "reward": 0.0,
+      "num_tokens": 352,
+      "completion": "Let's consider the findings described in the scenario:\n\n- **Slurred speech:** This symptom is indicative of a neurological disorder.\n- **Increased falls:** This could indicate issues with motor coordination or balance.\n- **Pes cavus, hammer toes, and kyphoscoliosis:** These are signs of spinal cord involvement.\n\nGiven these symptoms and considering the neurological implications, multiple trinucleotide repeat disorders like Caudal Regression Syndrome (CRS), Turner syndrome, or Spinocerebellar Ataxia (SCA) are pertinent disruptor causes.\n\nNow, let's analyze each option for the trinucleotide repeat involved in these disorders:\n\n- **CGG repeat:** Common in Fragile X Syndrome, this is not typically associated with the neurological and skeletal changes described.\n- **GAA repeat:** This is characteristic of Pompe Disease, not known for causing the specific syndromes listed.\n- **CAG repeat:** Known to cause diseases like Huntington's Disease, SCA (which includes spinocerebellar ataxia affecting the cerebellum and motor neurons), and ALS (or SCA6, Strongest and Largest Hexoanrepeat disease) - these align with a cerebellar and neurological involvement.\n- **GCC repeat:** There is no known disease caused by GCC repeat.\n\nConsidering all of the information, the most likely trinucleotide repeat responsible for the child's symptoms would correspond to Huntington’s Disease, which fits with the clinical presentation of a child experiencing slurred speech, increased falls, and neurological, muscular, and skeletal anomalies such as thoracic pseudoarthrosis (kyphoscoliosis) and altered limb morphology (pes cavus, hammer toes).\n\nTherefore, the correct answer is:\n\nAnswer: C"
+    }
+  ],
+  "full_training_estimate_1_epoch": {
+    "num_questions": 10178,
+    "epochs": 1,
+    "num_generations": 4,
+    "per_device_train_batch_size": 4,
+    "gradient_accumulation_steps": 4,
+    "num_gpus": 1,
+    "completions_per_step": 16,
+    "prompts_per_step": 4,
+    "total_steps": 2545,
+    "sec_per_step_pilot": 8.559142857142858,
+    "pilot_completions_per_step": 16,
+    "length_factor": 1.0,
+    "overhead_factor": 1.15,
+    "sec_per_step_estimated": 8.559142857142858,
+    "wall_hours": 6.958464265873016,
+    "gpu_hours": 6.958464265873016,
+    "formula": "C = per_device_bs × grad_accum × num_gpus（每步回答数）; P = C / num_generations（每步题数）; S = ceil(num_questions × epochs / P)（总步数）; t = t_pilot × (per_device_bs × grad_accum) / C_pilot_per_gpu × length_factor（每步秒数）; wall_hours = S × t × overhead_factor / 3600; gpu_hours = wall_hours × num_gpus"
+  },
+  "estimate_formula": "C = per_device_bs × grad_accum × num_gpus（每步回答数）; P = C / num_generations（每步题数）; S = ceil(num_questions × epochs / P)（总步数）; t = t_pilot × (per_device_bs × grad_accum) / C_pilot_per_gpu × length_factor（每步秒数）; wall_hours = S × t × overhead_factor / 3600; gpu_hours = wall_hours × num_gpus",
+  "run_name": "grpo_pilot_bf16_vllm_A100-SXM4-40GB_20261030_004033"
+}

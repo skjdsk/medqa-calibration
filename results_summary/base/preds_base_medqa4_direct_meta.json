@@ -1,0 +1,46 @@
+{
+  "model_name": "base",
+  "base_model": "Qwen/Qwen2.5-3B-Instruct",
+  "adapter": null,
+  "dataset": "medqa",
+  "n_items": 1273,
+  "num_options": 4,
+  "hf_source": {
+    "hf_name": null,
+    "hf_config": null,
+    "split": null
+  },
+  "mode": "direct",
+  "prompt_version": "direct-v1",
+  "system_prompt": null,
+  "compute_dtype": "torch.bfloat16",
+  "double_quant": true,
+  "batch_size": 8,
+  "seed": 42,
+  "letter_token_ids": {
+    "A": [
+      32,
+      362
+    ],
+    "B": [
+      33,
+      425
+    ],
+    "C": [
+      34,
+      356
+    ],
+    "D": [
+      35,
+      422
+    ]
+  },
+  "torch": "2.11.0+cu130",
+  "python": "3.13.16",
+  "gpu": "Tesla T4",
+  "timestamp_utc": "2026-10-24T01:31:14.753314+00:00",
+  "seconds": 924.9,
+  "transformers": "5.20.2",
+  "peft": "0.21.2",
+  "bitsandbytes": "0.50.2"
+}
