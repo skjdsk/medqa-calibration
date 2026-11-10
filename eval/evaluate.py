@@ -1,31 +1,9 @@
-"""
-evaluate.py —— 加载模型、构造 prompt、计算每个选项的概率、输出每题明细 CSV
-===========================================================================
+"""Evaluate direct answers or generated reasoning with normalized option probabilities.
 
-【这个文件做什么】
-1. 用 4-bit（nf4）加载 Qwen2.5-3B-Instruct；如果给了 --adapter，再用 PEFT 把 LoRA 叠上去。
-2. 把每道题放进 Qwen 的 chat template（user 消息里写题目和选项，要求只回答字母），
-   并加上 assistant 的开头（add_generation_prompt=True）。
-3. 不生成文字，只做一次前向计算，拿“下一个 token”的打分（logits）。
-4. 只看选项字母（A/B/C…）对应的 token：
-     - 每个字母同时考虑 "A" 和 " A"（带空格）两种 token，用 logsumexp 合并（= 两者概率相加）
-     - 记录这些字母在整个词表上的概率总和 letter_mass（归一化前），用来检查 prompt 是否合理：
-       如果 letter_mass 很小（比如 < 0.5），说明模型其实想输出别的东西（比如 "The"、"**"），
-       这时字母概率就不太可信，需要改 prompt。
-     - 在这几个字母上做 softmax，得到和为 1 的选项概率
-5. 概率最大的选项 = 模型答案，它的概率 = confidence。每题一行写进 CSV。
-
-【运行示例】
-    # 原始模型，MedQA 前 50 题
-    python -m eval.evaluate --dataset medqa --n 50 --out_dir results/
-    # 带 LoRA adapter
-    python -m eval.evaluate --dataset medqa --adapter /path/to/adapter --model_name sft_seed1 --out_dir results/
-
-【CoT 扩展空间】
---mode 目前只实现 "direct"。之后加 CoT 的思路（已在代码里留好位置）：
-    先 generate 出推理过程 → 在推理后面接上 "Final answer:" 之类的前缀 →
-    再调用同一个 score_letters()（它支持 assistant_prefixes 参数）给字母打分。
-这样 CoT 和直接作答共享完全相同的概率计算和指标代码，结果可直接比较。
+Direct mode preserves the original protocol. CoT mode uses the frozen DPO training
+prompt, greedily generates reasoning, removes the final answer line, and rescores
+all answer letters with the full vocabulary. Both modes export raw probabilities
+and log probabilities for offline temperature scaling. See train/dpo/EVALUATION.md.
 """
 
 from __future__ import annotations
@@ -209,7 +187,8 @@ def _logits_keep_arg(model) -> Optional[str]:
 @torch.no_grad()
 def score_letters(model, tokenizer, items: list[MCQItem], letter_table: dict[str, list[int]],
                   batch_size: int = 8, system_prompt: Optional[str] = None,
-                  assistant_prefixes: Optional[list[str]] = None) -> list[dict]:
+                  assistant_prefixes: Optional[list[str]] = None,
+                  prompt_texts: Optional[list[str]] = None) -> list[dict]:
     """
     对每道题算出每个选项字母的概率。返回与 items 同顺序的字典列表：
         {"letter_probs": {"A": 0.7, ...}, "letter_mass": 0.98, "n_prompt_tokens": 312}
@@ -218,7 +197,11 @@ def score_letters(model, tokenizer, items: list[MCQItem], letter_table: dict[str
     from tqdm.auto import tqdm
 
     device = next(model.parameters()).device
-    prompts = [
+    if batch_size < 1:
+        raise ValueError("Batch size must be positive")
+    if prompt_texts is not None and len(prompt_texts) != len(items):
+        raise ValueError("Expected one scoring prompt per item")
+    prompts = prompt_texts if prompt_texts is not None else [
         build_prompt_text(it, tokenizer, system_prompt, assistant_prefixes[i] if assistant_prefixes else "")
         for i, it in enumerate(items)
     ]
@@ -258,6 +241,7 @@ def score_letters(model, tokenizer, items: list[MCQItem], letter_table: dict[str
 
             results[i] = {
                 "letter_probs": {L: float(p) for L, p in zip(letters, norm_probs)},
+                "letter_log_probs": {L: float(v) for L, v in zip(letters, torch.log_softmax(letter_logp, dim=0).cpu().tolist())},
                 "letter_mass": float(letter_mass),
                 "n_prompt_tokens": int(lengths[i]),
             }
@@ -265,14 +249,9 @@ def score_letters(model, tokenizer, items: list[MCQItem], letter_table: dict[str
 
 
 def score_cot(*args, **kwargs):
-    """
-    CoT 评估预留位置（暂不实现）。计划：
-      1. 用 model.generate 生成推理（固定种子、记录解码参数）；
-      2. 截取推理文本，接上统一的答案前缀，如 "\\nFinal answer:"；
-      3. 调用 score_letters(..., assistant_prefixes=[推理 + 前缀, ...]) 得到字母概率；
-      4. 结果写到 eval_mode="cot" 的 CSV，metrics.py 无需修改即可计算指标。
-    """
-    raise NotImplementedError("CoT 评估还没实现，目前只支持 --mode direct")
+    """Run the Transformers CoT scorer through the shared evaluation interface."""
+    from eval.reasoning import score_cot as implementation
+    return implementation(*args, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -300,6 +279,13 @@ def build_rows(items: list[MCQItem], scores: list[dict], model_name: str, eval_m
         # 每个选项的归一化概率；这道题没有的选项（如 PubMedQA 的 D）留空
         for L in LETTERS[:max_letters]:
             row[f"prob_{L}"] = probs.get(L, np.nan)
+        if "letter_log_probs" in sc:
+            for L, value in sc["letter_log_probs"].items():
+                row[f"log_prob_{L}"] = value
+        for key in ("reasoning", "generated_text", "generated_answer", "format_ok",
+                    "generated_correct", "generation_truncated", "n_generated_tokens", "prompt_version"):
+            if key in sc:
+                row[key] = sc[key]
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -338,14 +324,14 @@ def parse_args(argv=None):
     p.add_argument("--out_dir", default="results")
     p.add_argument("--check_batch_consistency", action="store_true",
                    help="额外把前 4 题用 batch_size=1 重算，确认批处理/padding 不影响结果")
+    p.add_argument("--cot_max_new_tokens", type=int, default=512)
+    p.add_argument("--cot_max_context_tokens", type=int, default=4096)
     return p.parse_args(argv)
 
 
 def main(argv=None):
     args = parse_args(argv)
     set_seed(args.seed)
-    if args.mode == "cot":
-        score_cot()
     if args.hf_name and len(args.dataset) > 1:
         raise SystemExit("--hf_name 只能在单个 --dataset 时使用")
     if args.medqa_subset and (args.dataset != ["medqa"] or args.num_options != 4 or args.split or args.hf_name):
@@ -377,9 +363,14 @@ def main(argv=None):
         print(build_prompt_text(items[0], tokenizer, args.system_prompt))
         print("[prompt] ===== 结束 =====")
 
-        scores = score_letters(model, tokenizer, items, letter_table, args.batch_size, args.system_prompt)
+        if args.mode == "cot":
+            scores = score_cot(model, tokenizer, items, letter_table, args.batch_size, args.system_prompt,
+                               max_new_tokens=args.cot_max_new_tokens,
+                               max_context_tokens=args.cot_max_context_tokens)
+        else:
+            scores = score_letters(model, tokenizer, items, letter_table, args.batch_size, args.system_prompt)
 
-        if args.check_batch_consistency:
+        if args.check_batch_consistency and args.mode == "direct":
             k = min(4, len(items))
             single = score_letters(model, tokenizer, items[:k], letter_table, 1, args.system_prompt)
             diff = max(abs(single[i]["letter_probs"][L] - scores[i]["letter_probs"][L])
@@ -400,7 +391,8 @@ def main(argv=None):
             "dataset": ds_name, "n_items": len(items), "num_options": args.num_options if ds_name == "medqa" else None,
             "hf_source": dict(hf_name=args.hf_name, hf_config=args.hf_config, split=split),
             "medqa_subset": args.medqa_subset,
-            "mode": args.mode, "prompt_version": PROMPT_VERSION, "system_prompt": args.system_prompt,
+            "mode": args.mode, "prompt_version": PROMPT_VERSION if args.mode == "direct" else "dpo-cot-v1",
+            "cot_max_new_tokens": args.cot_max_new_tokens, "cot_max_context_tokens": args.cot_max_context_tokens, "system_prompt": args.system_prompt,
             "compute_dtype": str(compute_dtype), "quantization": args.quantization,
             "double_quant": not args.no_double_quant if args.quantization == "4bit" else None,
             "batch_size": args.batch_size, "seed": args.seed, "letter_token_ids": letter_table,
