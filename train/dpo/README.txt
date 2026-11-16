@@ -57,9 +57,10 @@ For a complete one-epoch run on all 3322 pairs and all 500 validation questions:
     python -m train.dpo.train --source local --seed 1 --output_dir outputs/dpo_train_seed1
 
 For Colab, set --source hf and put --output_dir on mounted Google Drive.
-Use --quantization none for unquantized BF16/FP16 LoRA; the default is 4-bit
-NF4 QLoRA with double quantization. Compute precision is selected from the GPU
-or explicitly controlled by --compute_dtype. Trainable adapter parameters are
+The default is unquantized BF16 LoRA: --quantization none --compute_dtype bf16.
+A BF16-capable GPU is required. For the optional NF4 QLoRA path, pass
+--quantization 4bit; use --compute_dtype auto for automatic precision selection.
+Trainable adapter parameters are
 stored in FP32; gradients use the configured mixed precision.
 
 Defaults: rank 16, alpha 32, all-linear targets, learning rate 5e-6, beta 0.1,
@@ -134,7 +135,7 @@ Final evaluation (only after selecting the configuration)
 --------------------------------------------------------
 Reuse the existing evaluator; match the training quantization mode:
 
-    python -m eval.evaluate --dataset medqa medmcqa pubmedqa --base_model Qwen/Qwen2.5-3B-Instruct --adapter outputs/dpo_train_seed1/best_adapter --model_name dpo_seed1 --quantization 4bit --out_dir results/dpo_seed1
+    python -m eval.evaluate --dataset medqa medmcqa pubmedqa --base_model Qwen/Qwen2.5-3B-Instruct --adapter outputs/dpo_train_seed1/best_adapter --model_name dpo_seed1 --quantization none --compute_dtype bf16 --out_dir results/dpo_seed1
     python -m eval.metrics --pred_csv results/dpo_seed1/preds_*.csv --out_dir results/dpo_seed1/metrics
 
 The shared evaluator downloads its evaluation datasets. Its existing --mode cot
@@ -146,7 +147,7 @@ Notebook
 --------
 notebooks/dpo_train.ipynb supports local and Colab configuration, optional
 dependency installation, data-only checks, guarded training, and result plots.
-Training is disabled by default until RUN_TRAINING is explicitly set to True.
+The current training notebooks have RUN_TRAINING=True; running the training cell starts the configured experiment.
 The notebook stores no executed training results in the repository initially.
 
 Tests
@@ -164,11 +165,11 @@ Set RUN_BASELINE=True for the first experiment, then leave it False to display
 saved results without loading a model. It evaluates all 500 fixed validation
 questions and the full official MedQA test split using direct-answer option
 probabilities. It saves summary.json, manifest.json, predictions, metrics, and
-reliability tables under outputs/base_medqa_4bit. Test metrics are descriptive
+reliability tables under outputs/base_medqa_bf16. Test metrics are descriptive
 only; do not use them to tune parameters or select adapters.
 
 Example from the repository root:
-python -m train.dpo.baseline --source hf --quantization 4bit --output_dir outputs/base_medqa_4bit
+python -m train.dpo.baseline --source hf --quantization none --compute_dtype bf16 --output_dir outputs/base_medqa_bf16
 
 Local mode also accepts --local_test_file. Existing baseline directories are
 protected from overwrite. For different model revisions or quantization, use

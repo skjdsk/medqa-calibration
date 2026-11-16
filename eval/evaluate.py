@@ -25,26 +25,26 @@ import torch
 from eval.data_loaders import LETTERS, MCQItem, load_items
 
 BASE_MODEL_DEFAULT = "Qwen/Qwen2.5-3B-Instruct"
-PROMPT_VERSION = "direct-v1"  # 改动 prompt 时把版本号也改掉，CSV 里会记录，防止混用不同 prompt 的结果
+PROMPT_VERSION = "direct-v1"  # Increment the prompt version whenever the prompt changes to prevent mixing protocols.
 
 
 # ---------------------------------------------------------------------------
-# 0. 固定随机种子
+# 0. Reproducibility
 # ---------------------------------------------------------------------------
 def set_seed(seed: int) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    # 只做前向计算本身没有随机性；这里主要是让以后加采样（CoT）时可复现
+    # Seed future sampled generation as well as the current forward-only evaluation.
 
 
 # ---------------------------------------------------------------------------
-# 1. 加载模型（4-bit nf4 + 可选 LoRA）
+# 1. Load an NF4 model and optional LoRA adapter
 # ---------------------------------------------------------------------------
 def pick_compute_dtype(name: str) -> torch.dtype:
     if name == "auto":
-        # A100/L4 支持 bf16；Colab 免费的 T4 不支持 bf16，用 fp16
+        # Use BF16 when supported; otherwise use FP16.
         return torch.bfloat16 if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else torch.float16
     return {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[name]
 
@@ -53,22 +53,22 @@ def load_model_and_tokenizer(base_model: str, adapter: Optional[str], compute_dt
                              double_quant: bool = True, quantization: str = "4bit"):
     from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
-    # 量化设置要和训练时 QLoRA 的 BitsAndBytesConfig 一致（nf4、double quant、compute dtype）
-    # quantization="none"：不量化，直接用 compute_dtype 加载（bf16 LoRA 训练的 adapter，例如 GRPO）
+    # Match the NF4, double-quantization and compute-dtype settings used for training.
+    # Use quantization="none" to load directly in compute_dtype, for example for BF16 LoRA.
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_use_double_quant=double_quant,
         bnb_4bit_compute_dtype=compute_dtype,
     ) if quantization == "4bit" else None
-    # tokenizer 优先从 adapter 目录读取（训练时如果改过 tokenizer 会保存在那里），否则用基础模型的
+    # Prefer an adapter tokenizer when available; otherwise load the base tokenizer.
     tok_src = adapter if adapter and os.path.exists(os.path.join(adapter, "tokenizer_config.json")) else base_model
     tokenizer = AutoTokenizer.from_pretrained(tok_src)
-    tokenizer.padding_side = "left"  # decoder-only 模型批处理必须左侧 padding，最后一个位置才是真实 token
+    tokenizer.padding_side = "left"  # Left-padding keeps the final position on a real token for decoder-only models.
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    # 新版 transformers（≥4.56，包括 5.x）把参数名 torch_dtype 改成了 dtype
+    # Transformers 4.56 and later use dtype instead of torch_dtype.
     import transformers
     from packaging import version
     dtype_kw = "dtype" if version.parse(transformers.__version__) >= version.parse("4.56") else "torch_dtype"
@@ -81,22 +81,22 @@ def load_model_and_tokenizer(base_model: str, adapter: Optional[str], compute_dt
     if adapter:
         from peft import PeftModel
 
-        print(f"[model] 叠加 LoRA adapter: {adapter}")
+        print(f"[model] Loading LoRA adapter: {adapter}")
         model = PeftModel.from_pretrained(model, adapter, is_trainable=False)
     model.eval()
     return model, tokenizer
 
 
 # ---------------------------------------------------------------------------
-# 2. 构造 prompt
+# 2. Prompt construction
 # ---------------------------------------------------------------------------
 def build_user_message(item: MCQItem) -> str:
-    """把一道题变成 user 消息的文字。所有模型、所有数据集都用这一个函数，保证可比。"""
+    """Build the shared user message for comparable evaluation across models and datasets."""
     letters = item.letters
     option_lines = "\n".join(f"{L}. {opt}" for L, opt in zip(letters, item.options))
     letter_list = ", ".join(letters[:-1]) + f", or {letters[-1]}"
     parts = []
-    if item.context:  # PubMedQA：先给摘要
+    if item.context:  # Prepend the abstract for PubMedQA.
         parts.append(f"Context:\n{item.context}")
     parts.append(f"Question: {item.question}")
     parts.append(f"Options:\n{option_lines}")
@@ -106,14 +106,11 @@ def build_user_message(item: MCQItem) -> str:
 
 def build_prompt_text(item: MCQItem, tokenizer, system_prompt: Optional[str] = None,
                       assistant_prefix: str = "") -> str:
-    """
-    用 Qwen 的 chat template 生成完整输入文字。
-    add_generation_prompt=True 会在末尾加上 "<|im_start|>assistant\\n"，
-    所以模型下一个要输出的 token 就是它的回答开头 —— 我们正是要看这个位置字母的概率。
-    assistant_prefix：留给 CoT 用（把生成的推理 + "Final answer:" 接在后面）；直接作答时为空。
-    注意：不传 system_prompt 时，Qwen2.5 的模板会自动加默认 system 消息
-    （"You are Qwen, created by Alibaba Cloud..."）。训练数据如果用了别的 system 消息，评估时请保持一致。
-    """
+    """Build the complete prompt with the chat template and an assistant generation prefix.
+    The next token is the first answer token. assistant_prefix can append reasoning
+    and an answer cue; direct evaluation uses an empty prefix. Without an explicit
+    system_prompt, the tokenizer may supply its default system message. Keep system
+    instructions consistent when comparing evaluations."""
     messages = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
@@ -123,46 +120,39 @@ def build_prompt_text(item: MCQItem, tokenizer, system_prompt: Optional[str] = N
 
 
 # ---------------------------------------------------------------------------
-# 3. 选项字母 → token id（检查是否单 token，处理 "A" 和 " A"）
+# 3. Map option letters and leading-space variants to single-token IDs
 # ---------------------------------------------------------------------------
 def build_letter_token_table(tokenizer, letters: list[str]) -> dict[str, list[int]]:
-    """
-    对每个字母，找出 "A" 和 " A" 各自的 token id。
-    - 只有“编码后正好是 1 个 token”的写法才算数（多 token 的写法无法用一步 logits 表示）
-    - 两种写法如果是同一个 id，只保留一个，避免重复计算
-    - 检查不同字母之间没有共用 id
-    返回：{"A": [id1, id2], "B": [...], ...}
-    """
+    """Collect single-token IDs for each letter and its leading-space variant.
+    Ignore multi-token variants and unknown tokens, deduplicate IDs within letters,
+    and reject IDs shared by different letters. Return a letter-to-token-ID mapping."""
     table: dict[str, list[int]] = {}
     for L in letters:
         ids = []
         for variant in (L, " " + L):
             toks = tokenizer.encode(variant, add_special_tokens=False)
-            if len(toks) == 1 and toks[0] != tokenizer.unk_token_id:  # 排除“未知词” token
+            if len(toks) == 1 and toks[0] != tokenizer.unk_token_id:  # Exclude unknown tokens.
                 ids.append(toks[0])
             else:
-                print(f"[warn] {variant!r} 被切成 {len(toks)} 个 token {toks}，这个写法不计入")
+                print(f"[warn] {variant!r} does not form an eligible single token: {len(toks)} token(s), {toks}; skipping variant")
         ids = sorted(set(ids))
         if not ids:
-            raise RuntimeError(f"字母 {L!r} 没有任何单 token 写法，无法用 logits 打分")
+            raise RuntimeError(f"Letter {L!r} has no single-token variant for scoring")
         table[L] = ids
     all_ids = [i for ids in table.values() for i in ids]
     if len(all_ids) != len(set(all_ids)):
-        raise RuntimeError(f"不同字母共用了 token id，请检查：{table}")
+        raise RuntimeError(f"Token IDs overlap across letters; inspect the mapping: {table}")
     return table
 
 
 # ---------------------------------------------------------------------------
-# 4. 前向计算，只取最后一个位置的 logits
+# 4. Forward pass using only the final-position logits
 # ---------------------------------------------------------------------------
 def last_position_logits(model, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-    """
-    返回形状 [batch, vocab] 的最后位置 logits。
-    - position_ids 根据 attention_mask 计算：左侧 padding 时，真实 token 的位置编号仍从 0 开始，
-      这样同一道题无论和谁一起成批、padding 多少，结果都一样（和 model.generate 的做法一致）。
-    - logits_to_keep=1：只计算最后一个位置的 logits。否则 [batch × 序列长度 × 15 万词表]
-      会占用好几 GB 显存（PubMedQA 摘要较长时尤其明显）。旧版 transformers 叫 num_logits_to_keep。
-    """
+    """Return final-position logits with shape [batch, vocabulary].
+    Derive position IDs from the attention mask so left-padding does not shift real
+    token positions. Request only the final position when supported to avoid large
+    sequence-by-vocabulary tensors. Older versions use num_logits_to_keep."""
     position_ids = (attention_mask.long().cumsum(-1) - 1).clamp(min=0)
     kwargs = dict(input_ids=input_ids, attention_mask=attention_mask, position_ids=position_ids, use_cache=False)
     keep_arg = _logits_keep_arg(model)
@@ -173,7 +163,7 @@ def last_position_logits(model, input_ids: torch.Tensor, attention_mask: torch.T
 
 
 def _logits_keep_arg(model) -> Optional[str]:
-    """看当前 transformers 版本的 forward 支持哪个参数名（PEFT 包装时看里面的基础模型）。"""
+    """Inspect the underlying model forward signature for the supported logits-limit argument."""
     import inspect
 
     base = model.get_base_model() if hasattr(model, "get_base_model") else model
@@ -181,7 +171,7 @@ def _logits_keep_arg(model) -> Optional[str]:
     for name in ("logits_to_keep", "num_logits_to_keep"):
         if name in params:
             return name
-    return None  # 很旧的版本：计算全部位置的 logits，结果一样，只是更占显存
+    return None  # Older versions compute all positions, using more memory but the same scoring rule.
 
 
 @torch.no_grad()
@@ -189,11 +179,10 @@ def score_letters(model, tokenizer, items: list[MCQItem], letter_table: dict[str
                   batch_size: int = 8, system_prompt: Optional[str] = None,
                   assistant_prefixes: Optional[list[str]] = None,
                   prompt_texts: Optional[list[str]] = None) -> list[dict]:
-    """
-    对每道题算出每个选项字母的概率。返回与 items 同顺序的字典列表：
-        {"letter_probs": {"A": 0.7, ...}, "letter_mass": 0.98, "n_prompt_tokens": 312}
-    assistant_prefixes：CoT 预留，每题一个前缀字符串；直接作答时为 None。
-    """
+    """Score each option letter and return dictionaries in the original item order.
+    Each result contains letter_probs, letter_log_probs, letter_mass and n_prompt_tokens.
+    assistant_prefixes supplies optional per-question continuations. prompt_texts
+    overrides the complete prompts, as used by the CoT scorer."""
     from tqdm.auto import tqdm
 
     device = next(model.parameters()).device
@@ -205,7 +194,7 @@ def score_letters(model, tokenizer, items: list[MCQItem], letter_table: dict[str
         build_prompt_text(it, tokenizer, system_prompt, assistant_prefixes[i] if assistant_prefixes else "")
         for i, it in enumerate(items)
     ]
-    # 按长度从长到短排序再分批：减少 padding 浪费；最长的先跑，如果会爆显存第一批就会发现
+    # Sort longest first to reduce padding and surface memory limits early.
     lengths = [len(tokenizer(p, add_special_tokens=False)["input_ids"]) for p in prompts]
     order = sorted(range(len(items)), key=lambda i: -lengths[i])
     results: list[Optional[dict]] = [None] * len(items)
@@ -213,30 +202,30 @@ def score_letters(model, tokenizer, items: list[MCQItem], letter_table: dict[str
     for start in tqdm(range(0, len(order), batch_size), desc="scoring"):
         idx = order[start:start + batch_size]
         enc = tokenizer([prompts[i] for i in idx], return_tensors="pt", padding=True,
-                        add_special_tokens=False)  # chat template 已经包含所有特殊 token
+                        add_special_tokens=False)  # The chat template already includes special tokens.
         logits = last_position_logits(model, enc["input_ids"].to(device), enc["attention_mask"].to(device))
-        logits = logits.float()  # 转成 fp32 再做 softmax，避免 fp16 精度问题
+        logits = logits.float()  # Compute probabilities in FP32 for numerical stability.
 
-        # ---- 关键步骤 1：整个词表上的 log 概率 ----
-        # log_softmax 后，log_probs_full[b, t] = log P(下一个 token = t)
+        # Step 1: log probabilities across the full vocabulary.
+        # log_probs_full[b, t] is log P(next token = t).
         log_probs_full = torch.log_softmax(logits, dim=-1)  # [B, V]
 
         for row, i in enumerate(idx):
-            letters = items[i].letters  # 这道题实际有几个选项就取几个字母（PubMedQA 只有 A/B/C）
+            letters = items[i].letters  # Use only the options present in this question, including three-option PubMedQA.
 
-            # ---- 关键步骤 2：每个字母合并 "A" 和 " A" ----
-            # logsumexp(log p1, log p2) = log(p1 + p2)，即两种写法的概率相加
+            # Step 2: combine plain and leading-space letter variants.
+            # logsumexp combines the probability mass of both token variants.
             letter_logp = torch.stack([
                 torch.logsumexp(log_probs_full[row, letter_table[L]], dim=0) for L in letters
-            ])  # [K]，K = 选项数
+            ])  # [K], where K is the number of options.
 
-            # ---- 关键步骤 3：归一化前的“字母概率总和” ----
-            # 这些字母在整个词表上一共占多少概率；越接近 1 说明模型确实在“选字母”
+            # Step 3: total letter probability mass before option normalization.
+            # Mass near one indicates that the model intends to output an option letter.
             letter_mass = letter_logp.exp().sum().item()
 
-            # ---- 关键步骤 4：只在这 K 个字母上做 softmax ----
-            # softmax(log p_A, log p_B, ...) = p_A / (p_A + p_B + ...)，即把字母概率重新归一化成和为 1
-            # （与“直接对这些字母的原始 logits 做 logsumexp 后 softmax”数学上完全等价）
+            # Step 4: normalize probabilities across the available option letters.
+            # The softmax divides each option probability by the sum over options.
+            # This is equivalent to merging the corresponding raw logits before softmax.
             norm_probs = torch.softmax(letter_logp, dim=0).cpu().numpy()
 
             results[i] = {
@@ -255,14 +244,14 @@ def score_cot(*args, **kwargs):
 
 
 # ---------------------------------------------------------------------------
-# 5. 组装每题明细表
+# 5. Build per-question prediction records
 # ---------------------------------------------------------------------------
 def build_rows(items: list[MCQItem], scores: list[dict], model_name: str, eval_mode: str,
                max_letters: int) -> pd.DataFrame:
     rows = []
     for it, sc in zip(items, scores):
         probs = sc["letter_probs"]
-        pred = max(probs, key=probs.get)  # 概率最大的字母（并列时取靠前的）
+        pred = max(probs, key=probs.get)  # Select the maximum-probability letter; ties retain the first option.
         row = {
             "dataset": it.dataset,
             "question_id": it.question_id,
@@ -273,10 +262,10 @@ def build_rows(items: list[MCQItem], scores: list[dict], model_name: str, eval_m
             "pred": pred,
             "confidence": probs[pred],
             "correct": int(pred == it.gold),
-            "letter_mass": sc["letter_mass"],  # 归一化前字母概率总和
+            "letter_mass": sc["letter_mass"],  # Total letter probability mass before option normalization.
             "n_prompt_tokens": sc["n_prompt_tokens"],
         }
-        # 每个选项的归一化概率；这道题没有的选项（如 PubMedQA 的 D）留空
+        # Leave unavailable options empty, such as option D for PubMedQA.
         for L in LETTERS[:max_letters]:
             row[f"prob_{L}"] = probs.get(L, np.nan)
         if "letter_log_probs" in sc:
@@ -295,35 +284,35 @@ def sanitize(name: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 6. 命令行入口
+# 6. Command-line interface
 # ---------------------------------------------------------------------------
 def parse_args(argv=None):
-    p = argparse.ArgumentParser(description="多选题校准评估（直接作答，letter-logit 打分）")
+    p = argparse.ArgumentParser(description="Multiple-choice calibration evaluation with direct or CoT letter scoring")
     p.add_argument("--dataset", required=True, nargs="+", choices=["medqa", "medmcqa", "pubmedqa"],
-                   help="可以一次给多个，例如 --dataset medqa medmcqa pubmedqa")
+                   help="Accepts multiple datasets, for example --dataset medqa medmcqa pubmedqa")
     p.add_argument("--base_model", default=BASE_MODEL_DEFAULT)
-    p.add_argument("--adapter", default=None, help="LoRA adapter 目录；不给则评估原始模型")
-    p.add_argument("--model_name", default=None, help="写进 CSV 的模型名；默认 base 或 adapter 文件夹名")
-    p.add_argument("--n", type=int, default=None, help="只跑前 N 题（调试用）")
-    p.add_argument("--num_options", type=int, default=4, help="MedQA 的选项数（4 或 5）")
-    p.add_argument("--hf_name", default=None, help="覆盖数据集的 HF 名称（只在单个 --dataset 时使用）")
+    p.add_argument("--adapter", default=None, help="LoRA adapter directory; omit to evaluate the base model")
+    p.add_argument("--model_name", default=None, help="Model label in CSV output; defaults to base or the adapter directory name")
+    p.add_argument("--n", type=int, default=None, help="Evaluate only the first N questions for debugging")
+    p.add_argument("--num_options", type=int, default=4, help="Number of MedQA options: 4 or 5")
+    p.add_argument("--hf_name", default=None, help="Override the HF dataset name; valid with a single dataset only")
     p.add_argument("--hf_config", default=None)
     p.add_argument("--split", default=None)
     p.add_argument("--medqa_subset", default=None, choices=["train", "val"],
-                   help="评估 MedQA train split 里 data/medqa_split_seed42.json 划出的训练集 / 验证集"
-                   "（默认不给 = 评估 test split）")
+                   help="Evaluate the training/validation subset defined by data/medqa_split_seed42.json within MedQA train "
+                   "(omit to evaluate the official test split)")
     p.add_argument("--batch_size", type=int, default=8)
     p.add_argument("--compute_dtype", default="auto", choices=["auto", "bf16", "fp16", "fp32"],
-                   help="4-bit 计算精度；请和训练时 bnb_4bit_compute_dtype 一致")
-    p.add_argument("--no_double_quant", action="store_true", help="训练时没开 double quant 就加上这个")
+                   help="4-bit compute dtype; match the training bnb_4bit_compute_dtype")
+    p.add_argument("--no_double_quant", action="store_true", help="Disable double quantization if it was disabled during training")
     p.add_argument("--quantization", default="4bit", choices=["4bit", "none"],
-                   help="基座加载方式：4bit（nf4，和 QLoRA 训练一致）或 none（bf16 不量化，和 bf16 LoRA 训练一致）")
-    p.add_argument("--system_prompt", default=None, help="默认用 Qwen 模板自带的 system 消息")
+                   help="Base-model loading: 4bit NF4 for QLoRA or none for unquantized LoRA")
+    p.add_argument("--system_prompt", default=None, help="Defaults to the system message supplied by the chat template")
     p.add_argument("--mode", default="direct", choices=["direct", "cot"])
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--out_dir", default="results")
     p.add_argument("--check_batch_consistency", action="store_true",
-                   help="额外把前 4 题用 batch_size=1 重算，确认批处理/padding 不影响结果")
+                   help="Rescore up to four questions with batch size 1 to check padding consistency")
     p.add_argument("--cot_max_new_tokens", type=int, default=512)
     p.add_argument("--cot_max_context_tokens", type=int, default=4096)
     return p.parse_args(argv)
@@ -333,9 +322,9 @@ def main(argv=None):
     args = parse_args(argv)
     set_seed(args.seed)
     if args.hf_name and len(args.dataset) > 1:
-        raise SystemExit("--hf_name 只能在单个 --dataset 时使用")
+        raise SystemExit("--hf_name requires a single --dataset")
     if args.medqa_subset and (args.dataset != ["medqa"] or args.num_options != 4 or args.split or args.hf_name):
-        raise SystemExit("--medqa_subset 只能和 --dataset medqa（4 选项）一起用，且不能再给 --split / --hf_name")
+        raise SystemExit("--medqa_subset requires four-option MedQA without --split or --hf_name")
 
     model_name = args.model_name or (
         os.path.basename(os.path.normpath(args.adapter)) if args.adapter else "base")
@@ -358,10 +347,10 @@ def main(argv=None):
                            hf_name=args.hf_name, hf_config=args.hf_config, split=split, indices=indices)
         max_letters = max(len(it.options) for it in items)
         letter_table = build_letter_token_table(tokenizer, LETTERS[:max_letters])
-        print(f"[tokens] 字母 → token id：{letter_table}")
-        print("[prompt] ===== 第一题的完整输入（请检查格式）=====")
+        print(f"[tokens] Letter-to-token mapping: {letter_table}")
+        print("[prompt] ===== Complete prompt for the first question; inspect formatting=====")
         print(build_prompt_text(items[0], tokenizer, args.system_prompt))
-        print("[prompt] ===== 结束 =====")
+        print("[prompt] ===== End =====")
 
         if args.mode == "cot":
             scores = score_cot(model, tokenizer, items, letter_table, args.batch_size, args.system_prompt,
@@ -375,8 +364,8 @@ def main(argv=None):
             single = score_letters(model, tokenizer, items[:k], letter_table, 1, args.system_prompt)
             diff = max(abs(single[i]["letter_probs"][L] - scores[i]["letter_probs"][L])
                        for i in range(k) for L in single[i]["letter_probs"])
-            print(f"[check] batch_size={args.batch_size} vs 1 的最大概率差：{diff:.2e}"
-                  f"（4-bit + fp16 下 1e-3 量级以内属正常）")
+            print(f"[check] batch_size={args.batch_size} vs 1 maximum probability difference: {diff:.2e}"
+                  f" (differences around 1e-3 or smaller may occur with 4-bit FP16)")
 
         df = build_rows(items, scores, model_name, args.mode, max_letters)
         tag = f"{ds_name}{args.num_options}" if ds_name == "medqa" else ds_name
@@ -385,7 +374,7 @@ def main(argv=None):
         csv_path = os.path.join(args.out_dir, f"preds_{model_name}_{tag}_{args.mode}.csv")
         df.to_csv(csv_path, index=False)
 
-        # 记录本次运行的设置，方便以后核对 7 个模型是否用了完全相同的设置
+        # Record configuration and provenance for reproducible model comparisons.
         meta = {
             "model_name": model_name, "base_model": args.base_model, "adapter": args.adapter,
             "dataset": ds_name, "n_items": len(items), "num_options": args.num_options if ds_name == "medqa" else None,
@@ -409,12 +398,12 @@ def main(argv=None):
         with open(csv_path.replace(".csv", "_meta.json"), "w") as f:
             json.dump(meta, f, indent=2, ensure_ascii=False)
 
-        print(f"[done] {ds_name}: {len(df)} 题，准确率 {df['correct'].mean():.3f}，"
-              f"平均 letter_mass {df['letter_mass'].mean():.3f}（最低 {df['letter_mass'].min():.3f}）")
+        print(f"[done] {ds_name}: {len(df)} questions, accuracy {df['correct'].mean():.3f} , "
+              f"mean letter_mass {df['letter_mass'].mean():.3f}(minimum {df['letter_mass'].min():.3f})")
         if df["letter_mass"].mean() < 0.5:
-            print("[warn] 平均 letter_mass < 0.5：模型多数时候并不想直接输出字母，"
-                  "字母概率可能不可信，请检查 prompt / chat template")
-        print(f"[done] 明细已保存：{csv_path}（用时 {meta['seconds']} 秒）")
+            print("[warn] mean letter_mass < 0.5: the model often prefers non-letter tokens; "
+                  "inspect the prompt/chat template before interpreting letter probabilities")
+        print(f"[done] Predictions saved: {csv_path} (elapsed {meta['seconds']} seconds)")
 
 
 if __name__ == "__main__":
