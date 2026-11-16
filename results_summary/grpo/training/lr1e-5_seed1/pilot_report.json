@@ -1,0 +1,178 @@
+{
+  "created_at": "2026-10-30T21:27:15",
+  "gpu_name": "NVIDIA A100-SXM4-40GB",
+  "environment": {
+    "gpu_name": "NVIDIA A100-SXM4-40GB",
+    "gpu_compute_capability": "8.0",
+    "gpu_total_memory_gb": 39.49,
+    "precision": "bf16",
+    "use_bf16": true,
+    "python": "3.13.16",
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "trl": "1.16.0",
+    "transformers": "5.20.2",
+    "peft": "0.21.2",
+    "bitsandbytes": "0.50.2"
+  },
+  "trl_version": "1.16.0",
+  "config": {
+    "model_name": "Qwen/Qwen2.5-3B-Instruct",
+    "n_questions": 5000,
+    "seed": 1,
+    "quantization": "none",
+    "lora_r": 16,
+    "lora_alpha": 32,
+    "lora_dropout": 0.05,
+    "lora_target_modules": "all-linear",
+    "lora_param_dtype": "fp32",
+    "num_generations": 8,
+    "max_completion_length": 1024,
+    "max_steps": 1250,
+    "num_train_epochs": 1.0,
+    "learning_rate": 1e-05,
+    "beta": 0.04,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "loss_type": null,
+    "scale_rewards": null,
+    "per_device_train_batch_size": 4,
+    "gradient_accumulation_steps": 8,
+    "no_gradient_checkpointing": false,
+    "use_vllm": true,
+    "vllm_gpu_memory_utilization": 0.3,
+    "vllm_max_model_length": 2048,
+    "output_dir": "grpo/grpo_train5000_g8_ep1_len1024_seed1_bf16",
+    "drive_dir": "",
+    "run_name": "",
+    "save_steps": 50,
+    "save_total_limit": 2,
+    "checkpoint_dir": "grpo/grpo_train5000_g8_ep1_len1024_seed1_bf16/checkpoints",
+    "resume": true,
+    "num_samples": 2,
+    "warmup_skip": 2,
+    "report_last_k": 5
+  },
+  "effective_grpo_config": {
+    "num_generations": 8,
+    "max_completion_length": 1024,
+    "per_device_train_batch_size": 4,
+    "gradient_accumulation_steps": 8,
+    "generation_batch_size": 32,
+    "steps_per_generation": 8,
+    "learning_rate": 1e-05,
+    "lr_scheduler_type": "linear",
+    "beta": 0.04,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 0,
+    "loss_type": "dapo",
+    "scale_rewards": "group",
+    "num_iterations": 1,
+    "epsilon": 0.2,
+    "bf16": true,
+    "fp16": false,
+    "gradient_checkpointing": true,
+    "use_vllm": true,
+    "max_steps": 1250,
+    "seed": 1
+  },
+  "dropped_config_keys": [],
+  "derived": {
+    "num_gpus": 1,
+    "completions_per_step_per_gpu": 32,
+    "completions_per_step": 32,
+    "prompts_per_step": 4,
+    "pilot_passes_over_subset": 1.0,
+    "prompt_tokens": {
+      "min": 119,
+      "mean": 276.6554,
+      "p95": 424,
+      "max": 940
+    }
+  },
+  "timing": {
+    "num_steps_logged": 1250,
+    "warmup_steps_skipped": 2,
+    "avg_step_time_s_excl_warmup": 14.993636217948719,
+    "avg_step_time_s_all": 14.9932584,
+    "first_step_time_s": 12.97,
+    "max_step_time_s": 24.186,
+    "total_train_time_s": 14266.586777774
+  },
+  "memory": {
+    "peak_mem_allocated_gb_max_over_steps": 20.181,
+    "peak_mem_reserved_gb_max_over_steps": 20.422,
+    "gpu_total_memory_gb": 39.49
+  },
+  "reward": {
+    "first_step": 0.5,
+    "last_5_steps_mean": 0.4,
+    "all_steps_mean": 0.498025
+  },
+  "format_rate": {
+    "first_step": 1.0,
+    "last_5_steps_mean": 0.9875
+  },
+  "truncated_frac_mean": 2.5e-05,
+  "frac_groups_all_same_mean": 0.331,
+  "frac_groups_all_same_last_k_mean": 0.2,
+  "mean_completion_tokens_mean": 388.146975,
+  "stability": {
+    "nan_or_inf_loss_steps": 0,
+    "max_grad_norm": 0.42055389285087585,
+    "kl_last": 0.0015075963165145367,
+    "kl_max": 0.005895878246519715
+  },
+  "samples_before": [
+    {
+      "answer": "C",
+      "pred": "D",
+      "reward": 0.0,
+      "num_tokens": 292,
+      "completion": "Step 1: Understanding the context\nAnti-centromere antibodies are associated with a condition called CREST syndrome, which is a form of scleroderma. CREST syndrome, which stands for Calcinosis, Raynaud's phenomenon, Esophageal dysmotility, Sclerodactyly, and Telangiectasia, represents a specific subset of scleroderma.\n\nStep 2: Analyzing each option\nA. Pallor, cyanosis, and erythema of the hands\n- These symptoms could be seen in Raynaud’s phenomenon, a common symptom of CREST syndrome.\n\nB. Blanching vascular abnormalities\n- Blanching vascular abnormalities (spider angiomas, purpura) can be seen as a part of scleroderma.\n\nC. Hypercoagulable state\n- CREST syndrome can be associated with a hypercoagulable state due to the vasculitis and the systemic effects of the disease.\n\nD. Heartburn and regurgitation\n- These are common symptoms in gastroesophageal reflux disease (GERD) and are not directly related to CREST syndrome or its associated antibodies.\n\nStep 3: Confirming the final answer\nBased on the association of the anti-centromere antibodies with CREST syndrome, all of the symptoms and signs mentioned except for heartburn and regurgitation are expected to be part of the condition.\n\nAnswer: D"
+    },
+    {
+      "answer": "B",
+      "pred": "C",
+      "reward": 0.0,
+      "num_tokens": 380,
+      "completion": "Let's break down the clinical presentation and the given symptoms to understand this case.\n\n1. Slurred speech and falling more than normal might indicate neuromuscular issues.\n2. The presence of hammer toes can be a sign of an orthopedic condition or a neuromuscular disease.\n3. Kyphoscoliosis (kyposcoliosis) can be associated with a wide range of genetic disorders.\n\nAmong the trinucleotide repeat disorders that could present with neurological or orthopedic complexities like these, we'll focus on those that can seem similar at first to a trinucleotide repeat disease. Here's the checklist for each option:\n\n- **CGG repeat disorders:** Fragile X syndrome (significant neurodevelopmental issues but usually does not affect neuromusculature or skeletal issues).\n- **GAA repeat disorders:** Phenylketonuria (PKU) - typically presents with neurological and metabolic issues, not neuromusculature or skeletal anomalies).\n- **CAG repeat disorders:** Huntington disease and certain forms of ataxia (which have neurological aspects and can sometimes cause skeletal issues, like Hirschsprung disease).\n- **GCC repeat disorder:** There are no well-known human diseases known by GCC repeats.\n\nSeveral forms of ataxia, particularly Adolescent- or Adult- onset spinocerebellar ataxia (SCA), occur frequently and can affect the nervous system and neuromuscular junction, causing speech disorders and coordination issues, along with skeletal manifestations such as hammer toes and scoliosis. Common types of SCA involve CAG repeats, most notably affecting regions responsible for motor function and leading to ataxia.\n\nGiven the neuromuscular manifestations and skeletal abnormalities observed, the most likely trinucleotide repeat disease in this case is CAG repeats, which can lead to adult onset ataxia.\n\nAnswer: C"
+    }
+  ],
+  "samples_after": [
+    {
+      "answer": "C",
+      "pred": "D",
+      "reward": 0.0,
+      "num_tokens": 343,
+      "completion": "To correctly answer this question, we must first understand what anti-centromere antibodies are indicative of. Anti-centromere antibodies are positive in approximately 96-100% of patients with CREST syndrome, a subset of the more extensive autoimmune disorder known as Scleroderma. CREST syndrome primarily affects the skin and small intestine, but it can also cause systemic symptoms.\n\nLet's analyze each of the options given:\n\nA. Pallor, cyanosis, and erythema of the hands: These symptoms can occur with Raynaud's phenomenon, a common feature in Scleroderma. They are typically due to vasospastic changes when the hands and extremities feel cold or perceive a decrease in temperature.\n\nB. Blanching vascular abnormalities: This is consistent with the vasospastic phenomena seen in Raynaud's phenomenon.\n\nC. Hypercoagulable state: Scleroderma can indeed increase the risk of clotting due to vessel fibrosis. The fibrosis reduces the internal diameter of blood vessels, leading to higher blood pressure and potentially causing thrombosis.\n\nD. Heartburn and regurgitation: These symptoms are more typical of esophagitis. While heartburn and regurgitation are more likely symptoms of gastroesophageal reflux disease, it is not a typical or listed symptom of Scleroderma. However, they are generally not expected to be present in Scleroderma caused by anti-centromere antibodies.\n\nGiven the information above, the symptom and sign that would be EXCEPTED based on the presence of anti-centromere antibodies is unrelated to the systemic manifestations associated with CREST syndrome.\n\nAnswer: D"
+    },
+    {
+      "answer": "B",
+      "pred": "B",
+      "reward": 1.0,
+      "num_tokens": 268,
+      "completion": "Let's examine the symptoms in the patient:\n\n1. Speech slurring and falling: These symptoms suggest a possible neurodegenerative condition or neurological disorder that can lead to motor coordination problems like ataxia.\n2. Pecs cavus, hammer toes, and kyposcoliosis: These are skeletal anomalies that can be symptoms of certain diseases related to trinucleotide repeat expansions.\n\nNow let's consider the trinucleotide repeat diseases that typically present with these symptoms:\n\n- Huntington's Disease: This condition is caused by a CAG trinucleotide repeat in the huntingtin gene. However, it typically impacts older age groups rather than 8-year-olds with slurred speech and increased falls.\n- Friedreich's Ataxia: This is characterized by muscle weakness, cardiomyopathy, and scoliosis, often along with speech and neurological issues. The genetic cause is a GAA trinucleotide repeat mutation in the gene for frataxin.\n\nGiven that the child's symptoms are more in the younger age range, affecting his motor and speech functions prominently, and the presence of skeletal abnormalities, Friedreich's Ataxia (caused by GAA trinucleotide repeat expansion) along with the neurological effects like speech slurring and frequent falls are more compatible with the patient's presentation.\n\nAnswer: B"
+    }
+  ],
+  "full_training_estimate_1_epoch": {
+    "num_questions": 5000,
+    "epochs": 1,
+    "num_generations": 8,
+    "per_device_train_batch_size": 4,
+    "gradient_accumulation_steps": 8,
+    "num_gpus": 1,
+    "completions_per_step": 32,
+    "prompts_per_step": 4,
+    "total_steps": 1250,
+    "sec_per_step_pilot": 14.993636217948719,
+    "pilot_completions_per_step": 32,
+    "length_factor": 1.0,
+    "overhead_factor": 1.15,
+    "sec_per_step_estimated": 14.993636217948719,
+    "wall_hours": 5.987042239805912,
+    "gpu_hours": 5.987042239805912
+  },
+  "run_name": "grpo_train5000_g8_ep1_len1024_seed1_bf16_A100-SXM4-40GB_20261030_172625"
+}

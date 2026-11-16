@@ -1,0 +1,5 @@
+learning_rate,steps_trained,reward_steps_1_50,reward_steps_251_300,kl_steps_251_300,completion_tokens_251_300,val_model,val_checkpoint_step,val_direct_acc,val_cot_acc,val_vote8_acc,val_vote8_conf,val_vote8_ece
+1e-5,1250,0.533,0.428,0.0013,393.3,grpo_seed1,1250,0.514,0.54,0.554,0.73,0.176
+5e-5,300,0.549,0.432,0.0045,395.2,grpo_lr5e-5_step300,300,0.506,0.52,0.54,0.729,0.189
+1e-4,1250,0.519,0.442,0.0161,447.6,grpo_lr1e-4_step300,300,0.516,0.522,0.554,0.724,0.187
+2e-4,300,0.518,0.441,0.0489,379.2,grpo_lr2e-4_step300,300,0.502,0.536,0.534,0.732,0.2

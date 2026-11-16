@@ -1,0 +1,48 @@
+{
+  "model_name": "grpo_lr5e-5_step300",
+  "base_model": "Qwen/Qwen2.5-3B-Instruct",
+  "adapter": "grpo/grpo_train5000_g8_ep1_len1024_lr5e-05_seed1_bf16/checkpoints/checkpoint-300",
+  "dataset": "medqa",
+  "n_items": 500,
+  "num_options": 4,
+  "hf_source": {
+    "hf_name": null,
+    "hf_config": null,
+    "split": "train"
+  },
+  "medqa_subset": "val",
+  "mode": "direct",
+  "prompt_version": "direct-v1",
+  "system_prompt": null,
+  "compute_dtype": "torch.bfloat16",
+  "quantization": "none",
+  "double_quant": null,
+  "batch_size": 8,
+  "seed": 42,
+  "letter_token_ids": {
+    "A": [
+      32,
+      362
+    ],
+    "B": [
+      33,
+      425
+    ],
+    "C": [
+      34,
+      356
+    ],
+    "D": [
+      35,
+      422
+    ]
+  },
+  "torch": "2.13.0+cu130",
+  "python": "3.13.16",
+  "gpu": "NVIDIA A100-SXM4-40GB",
+  "timestamp_utc": "2026-11-01T00:22:30.269050+00:00",
+  "seconds": 14.9,
+  "transformers": "5.21.0",
+  "peft": "0.21.2",
+  "bitsandbytes": "0.50.2"
+}

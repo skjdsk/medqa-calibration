@@ -1,0 +1,39 @@
+{
+  "model_name": "base",
+  "base_model": "Qwen/Qwen2.5-3B-Instruct",
+  "adapter": null,
+  "dataset": "medqa",
+  "medqa_subset": "val",
+  "n_items": 500,
+  "prompt_version": "grpo-cot-v1",
+  "dtype": "bfloat16",
+  "max_tokens": 1024,
+  "n_samples": 8,
+  "temperature": 1.0,
+  "seed": 42,
+  "letter_token_ids": {
+    "A": [
+      32,
+      362
+    ],
+    "B": [
+      33,
+      425
+    ],
+    "C": [
+      34,
+      356
+    ],
+    "D": [
+      35,
+      422
+    ]
+  },
+  "python": "3.13.16",
+  "timestamp_utc": "2026-10-31T22:12:05.657464+00:00",
+  "seconds": 346.4,
+  "torch": "2.13.0+cu130",
+  "transformers": "5.21.0",
+  "vllm": "0.27.1",
+  "gpu": "NVIDIA A100-SXM4-40GB"
+}

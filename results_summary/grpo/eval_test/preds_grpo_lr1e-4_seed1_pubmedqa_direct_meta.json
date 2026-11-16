@@ -1,0 +1,46 @@
+{
+  "model_name": "grpo_lr1e-4_seed1",
+  "base_model": "Qwen/Qwen2.5-3B-Instruct",
+  "adapter": "grpo/grpo_train5000_g8_ep1_len1024_lr0.0001_seed1_bf16/adapter",
+  "dataset": "pubmedqa",
+  "n_items": 1000,
+  "num_options": null,
+  "hf_source": {
+    "hf_name": null,
+    "hf_config": null,
+    "split": null
+  },
+  "medqa_subset": null,
+  "mode": "direct",
+  "prompt_version": "direct-v1",
+  "cot_max_new_tokens": 512,
+  "cot_max_context_tokens": 4096,
+  "system_prompt": null,
+  "compute_dtype": "torch.bfloat16",
+  "quantization": "none",
+  "double_quant": null,
+  "batch_size": 8,
+  "seed": 42,
+  "letter_token_ids": {
+    "A": [
+      32,
+      362
+    ],
+    "B": [
+      33,
+      425
+    ],
+    "C": [
+      34,
+      356
+    ]
+  },
+  "torch": "2.13.0+cu130",
+  "python": "3.13.16",
+  "gpu": "NVIDIA A100-SXM4-40GB",
+  "timestamp_utc": "2026-11-15T20:51:51.518476+00:00",
+  "seconds": 34.2,
+  "transformers": "5.22.1",
+  "peft": "0.21.2",
+  "bitsandbytes": "0.50.2"
+}

@@ -40,3 +40,62 @@ def test_letter_probs_normalized():
 def test_vote_probs():
     assert vote_probs(["A", "A", "B", None]) == {"A": 2 / 3, "B": 1 / 3, "C": 0, "D": 0}
     assert vote_probs([None, None]) == {L: 0.25 for L in "ABCD"}
+
+
+# ---- 测试集 / 迁移数据集用的 prompt 和解析 ----
+import json  # noqa: E402
+
+from eval.cot_eval import (  # noqa: E402
+    _TRAIN_LETTER_LIST, build_cot_prompt, format_cot_user_message, result_tag, valid_answer,
+)
+from eval.data_loaders import MCQItem  # noqa: E402
+from train.grpo.grpo_data import INSTRUCTION, build_prompt_text, format_user_message  # noqa: E402
+
+
+class FakeTokenizer:
+    """apply_chat_template 直接把消息列表变成 JSON，便于逐字比较。"""
+
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
+        return json.dumps(messages, ensure_ascii=False)
+
+
+MEDQA = MCQItem("medqa", "medqa4-1", "Which drug?", ["Aspirin", "Heparin", "Warfarin", "Insulin"], "B")
+PUBMED = MCQItem("pubmedqa", "123", "Does X cause Y?", ["yes", "no", "maybe"], "A",
+                 context="BACKGROUND: something.\nRESULTS: more.")
+
+
+def test_instruction_has_letter_list():
+    assert INSTRUCTION.count(_TRAIN_LETTER_LIST) == 1
+
+
+def test_four_option_prompt_identical_to_training():
+    opts = dict(zip("ABCD", MEDQA.options))
+    assert format_cot_user_message(MEDQA) == format_user_message(MEDQA.question, opts)
+    tok = FakeTokenizer()
+    assert build_cot_prompt(tok, MEDQA) == build_prompt_text(tok, MEDQA.question, opts)
+
+
+def test_pubmedqa_prompt():
+    msg = format_cot_user_message(PUBMED)
+    assert msg.startswith("Context:\nBACKGROUND: something.\nRESULTS: more.\n\nDoes X cause Y?\n\nA. yes\nB. no\nC. maybe\n")
+    assert msg.endswith("where X is one of A, B, or C.")
+    assert "D." not in msg
+    system = json.loads(build_cot_prompt(FakeTokenizer(), PUBMED))[0]["content"]
+    assert system == json.loads(build_cot_prompt(FakeTokenizer(), MEDQA))[0]["content"]
+
+
+def test_valid_answer_drops_missing_letters():
+    assert valid_answer("reasoning\nAnswer: D", ("A", "B", "C")) is None
+    assert valid_answer("reasoning\nAnswer: B", ("A", "B", "C")) == "B"
+    assert valid_answer("Answer: yes", ("A", "B", "C")) is None
+
+
+def test_vote_probs_three_options():
+    assert vote_probs(["A", "C", None], ("A", "B", "C")) == {"A": 0.5, "B": 0, "C": 0.5}
+
+
+def test_result_tags_match_evaluate_py():
+    assert result_tag("medqa", "val") == "medqa4_val"
+    assert result_tag("medqa", "test") == "medqa4"
+    assert result_tag("medmcqa", "val") == "medmcqa"
+    assert result_tag("pubmedqa", "test") == "pubmedqa"

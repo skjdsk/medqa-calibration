@@ -1,0 +1,179 @@
+{
+  "created_at": "2026-11-15T13:49:28",
+  "gpu_name": "NVIDIA L4",
+  "environment": {
+    "gpu_name": "NVIDIA L4",
+    "gpu_compute_capability": "8.9",
+    "gpu_total_memory_gb": 22.03,
+    "precision": "bf16",
+    "use_bf16": true,
+    "python": "3.13.16",
+    "torch": "2.13.0+cu130",
+    "cuda": "13.0",
+    "trl": "1.16.0",
+    "transformers": "5.22.1",
+    "peft": "0.21.2",
+    "bitsandbytes": "0.50.2"
+  },
+  "trl_version": "1.16.0",
+  "config": {
+    "model_name": "Qwen/Qwen2.5-3B-Instruct",
+    "n_questions": 5000,
+    "seed": 2,
+    "quantization": "none",
+    "lora_r": 16,
+    "lora_alpha": 32,
+    "lora_dropout": 0.05,
+    "lora_target_modules": "all-linear",
+    "lora_param_dtype": "fp32",
+    "num_generations": 8,
+    "max_completion_length": 1024,
+    "max_steps": 1250,
+    "num_train_epochs": 1.0,
+    "learning_rate": 0.0001,
+    "beta": 0.04,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "loss_type": null,
+    "scale_rewards": null,
+    "per_device_train_batch_size": 4,
+    "gradient_accumulation_steps": 8,
+    "no_gradient_checkpointing": false,
+    "use_vllm": true,
+    "vllm_gpu_memory_utilization": 0.3,
+    "vllm_max_model_length": 2048,
+    "output_dir": "grpo/grpo_train5000_g8_ep1_len1024_lr0.0001_seed2_bf16",
+    "drive_dir": "",
+    "run_name": "",
+    "save_steps": 100,
+    "save_total_limit": 2,
+    "checkpoint_dir": "grpo/grpo_train5000_g8_ep1_len1024_lr0.0001_seed2_bf16/checkpoints",
+    "resume": true,
+    "stop_after_step": 0,
+    "num_samples": 2,
+    "warmup_skip": 2,
+    "report_last_k": 5
+  },
+  "effective_grpo_config": {
+    "num_generations": 8,
+    "max_completion_length": 1024,
+    "per_device_train_batch_size": 4,
+    "gradient_accumulation_steps": 8,
+    "generation_batch_size": 32,
+    "steps_per_generation": 8,
+    "learning_rate": 0.0001,
+    "lr_scheduler_type": "linear",
+    "beta": 0.04,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 0,
+    "loss_type": "dapo",
+    "scale_rewards": "group",
+    "num_iterations": 1,
+    "epsilon": 0.2,
+    "bf16": true,
+    "fp16": false,
+    "gradient_checkpointing": true,
+    "use_vllm": true,
+    "max_steps": 1250,
+    "seed": 2
+  },
+  "dropped_config_keys": [],
+  "derived": {
+    "num_gpus": 1,
+    "completions_per_step_per_gpu": 32,
+    "completions_per_step": 32,
+    "prompts_per_step": 4,
+    "pilot_passes_over_subset": 1.0,
+    "prompt_tokens": {
+      "min": 119,
+      "mean": 276.6554,
+      "p95": 424,
+      "max": 940
+    }
+  },
+  "timing": {
+    "num_steps_logged": 1250,
+    "warmup_steps_skipped": 2,
+    "avg_step_time_s_excl_warmup": 16.723922275641026,
+    "avg_step_time_s_all": 16.7192728,
+    "first_step_time_s": 15.957,
+    "max_step_time_s": 103.149,
+    "total_train_time_s": 3349.7000182350002
+  },
+  "memory": {
+    "peak_mem_allocated_gb_max_over_steps": 20.15,
+    "peak_mem_reserved_gb_max_over_steps": 20.383,
+    "gpu_total_memory_gb": 22.03
+  },
+  "reward": {
+    "first_step": 0.8125,
+    "last_5_steps_mean": 0.65625,
+    "all_steps_mean": 0.505875
+  },
+  "format_rate": {
+    "first_step": 1.0,
+    "last_5_steps_mean": 1.0
+  },
+  "truncated_frac_mean": 7.5e-05,
+  "frac_groups_all_same_mean": 0.3952,
+  "frac_groups_all_same_last_k_mean": 0.3,
+  "mean_completion_tokens_mean": 380.67735,
+  "stability": {
+    "nan_or_inf_loss_steps": 0,
+    "max_grad_norm": 0.2228763997554779,
+    "kl_last": 0.009787960909307003,
+    "kl_max": 0.05262825055979192
+  },
+  "samples_before": [
+    {
+      "answer": "C",
+      "pred": "D",
+      "reward": 0.0,
+      "num_tokens": 279,
+      "completion": "Step 1: Understanding the context\nAnti-centromere antibodies are associated with a condition called CREST syndrome, which is a form of scleroderma. CREST syndrome stands for:\n- Calcinosis\n- Raynaud's phenomenon\n- Esophageal dysmotility\n- Sclerodactyly\n- Telangiectasia\n\nStep 2: Evaluating each option based on CREST syndrome symptoms\nA. Pallor, cyanosis, and erythema of the hands\n- These can be signs of Raynaud’s phenomenon typical in CREST syndrome.\nB. Blanching vascular abnormalities\n- Examples of vascular abnormalities include telangiectasia (spider veins), which are common in CREST syndrome.\nC. Hypercoagulable state\n- CREST syndrome patients do exhibit symptoms of hypercoagulability due to disseminated intravascular coagulation and inflammation.\nD. Heartburn and regurgitation\n- While heartburn can happen in general medical conditions, per the information provided, there is no known association between heartburn and anti-centromere antibodies or CREST syndrome.\n\nStep 3: Formulating the answer\nFrom the step-by-step evaluation, it is clear that the symptom of heartburn and regurgitation is not expected to be present in a patient with CREST syndrome.\n\nAnswer: D"
+    },
+    {
+      "answer": "B",
+      "pred": "B",
+      "reward": 1.0,
+      "num_tokens": 336,
+      "completion": "Let's analyze the situation step by step.\n\n1. **Behavioral Changes**: The highlighted behavioral changes, like slurred speech and more frequent falls, could be associated with movement disorders or neurodegenerative diseases.\n2. **Orthopedic Findings**: The noted orthopedic findings - pes cavus, hammer toes, and kyphoscoliosis - can be secondary to certain genetic disorders affecting skeletal development.\n3. **Educational Grounds**: There is an association between these skeletal and neurological symptoms, particularly with trinucleotide repeat expansions, which can lead to expanded trinucleotide repeat (CTG)n, (CCCAGG)n, and (CAG)n expansions in different regions of the genome. Disorders such as Friedreich's Ataxia (caused by trinucleotide repeat expansion of (GAA)n), spinal and bulbar muscular atrophy (SMA, trinucleotide repeat expansion of (CCCAGG)n), and Huntington Disease (Huntington's disease, trinucleotide repeat expansion of (CAG)n) are among the conditions exhibiting these signs.\n\nNow, referencing the given options:\nA. CGG - Associated with Fragile X syndrome\nB. GAA - Associated with Friedreich's Ataxia\nC. CAG - Associated with Huntingdon's disease\nD. GCC - Not related to any known genetic cause\n\nGiven the primary findings of behavioral changes and orthopedic abnormalities, Friedreich's Ataxia seems the most likely since it involves (GAA)n expansions. Scanning through the multiple-choice answers, option B indeed aligns with GAA.\n \nAnswer: B"
+    }
+  ],
+  "samples_after": [
+    {
+      "answer": "C",
+      "pred": "D",
+      "reward": 0.0,
+      "num_tokens": 343,
+      "completion": "Step 1: Analyze the patient's symptoms.\nThe patient has anti-centromere antibodies, which are markers of CREST syndrome (Chronic Esophageal Reflux, Sclerodactyly, Raynaud’s Phenomenon, Telangiectasia, and Sclerodactyly). CREST syndrome often affects various body systems showing the specified symptoms.\n\nStep 2: Review the symptoms:\n- Pallor, cyanosis, and erythema of the hands (Raynaud's phenomenon)\n- Hypercoagulable state (disorder of blood clotting making it more likely to form blood clots)\n- Erythema, edema, telangiectasia, and nailfold capillary changes (RESSET criteria, SLE criteria, and Raynaud's phenomenon)\n- Chronic esophageal reflux is a hallmark of CREST syndrome.\n\nStep 3: Evaluate the options:\nA. Pallor, cyanosis, and erythema of the hands - This is an expected symptom of CREST syndrome. (Present)\nB. Blanching vascular abnormalities - This can be associated with CREST syndrome. (Present)\nC. Hypercoagulable state - Due to the SLE (Systemic Lupus Erythematosus) component of the syndrome, this can be related to the coagulation abnormalities found with SLE (demonstrates clustering of autoimmune disorders). (Present)\nD. Heartburn and regurgitation - These symptoms are primarily associated with GERD (Gastroesophageal Reflux Disease), not CREST syndrome. (Not Present)\n\nStep 4: Select the answer.\nAnswer: D"
+    },
+    {
+      "answer": "B",
+      "pred": "C",
+      "reward": 0.0,
+      "num_tokens": 393,
+      "completion": "Step 1: Analyzing the symptoms.\nThe boy's symptoms suggest dysarthria (slurred speech) and falls, which could be indicative of a neurological disorder. The clinical findings of pes cavus, hammer toes, and kyphoscoliosis are intriguing but not diagnostic by themselves. However, the presence of these symptoms with a neurological issue narrows down the diagnosis to a genetic disorder affecting the nervous system, such as one of the trinucleotide repeat diseases.\n\nStep 2: Identifying the trinucleotide repeat diseases.\nTrinucleotide repeat diseases are known to affect the nervous system, leading to various neurodegenerative disorders. The most common ones are Amyotrophic Lateral Sclerosis (ALS), Fragile X Syndrome, and some forms of CMT (Charcot-Marie-Tooth). Of these, both ALS and CMT are identified by the neurological symptoms and muscle findings described.\n\nStep 3: Linking the trinucleotide repeats.\n\n- **CAG repeat**: Associated with ALS and Frontotemporal Dementia in the general population. Known to cause atrophy in the brain.\n- **GGGCC (CAG repeat)**: Found in a specific form of Charcot-Marie-Tooth (CMT1A).\n- **CGG repeat**: Not a standard trinucleotide repeat causing genetic disorder, but is associated with hereditary non-polyposis colorectal cancer (HNPCC).\n- **GAA repeat**: Associated with Fabry disease, which is not kindling on criteria.\n\nGiven his symptoms and clinical features, particularly the neurological deficits, and the specific findings (pes cavus, hammer toes, kyphoscoliosis), CMT1A where the GGGCC repeat expansion is found, is a strong candidate. Additionally, it matches the neurological symptoms more closely than other spatiotemporal trinucleotide repeats or other conditions.\n\nAnswer: C"
+    }
+  ],
+  "full_training_estimate_1_epoch": {
+    "num_questions": 5000,
+    "epochs": 1,
+    "num_generations": 8,
+    "per_device_train_batch_size": 4,
+    "gradient_accumulation_steps": 8,
+    "num_gpus": 1,
+    "completions_per_step": 32,
+    "prompts_per_step": 4,
+    "total_steps": 1250,
+    "sec_per_step_pilot": 16.723922275641026,
+    "pilot_completions_per_step": 32,
+    "length_factor": 1.0,
+    "overhead_factor": 1.15,
+    "sec_per_step_estimated": 16.723922275641026,
+    "wall_hours": 6.67795507534277,
+    "gpu_hours": 6.67795507534277
+  },
+  "run_name": "grpo_train5000_g8_ep1_len1024_lr0.0001_seed2_bf16_L4_20261115_125016"
+}
