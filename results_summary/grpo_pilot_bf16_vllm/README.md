@@ -1,78 +1,77 @@
-# GRPO 试跑（pilot）：bf16 LoRA + vLLM（A100）
+# GRPO pilot: bf16 LoRA + vLLM (A100)
 
-**目的不是看效果**，而是确认 vLLM 加速下训练是否正常、测出每步耗时和显存，用来估算正式训练的开销。64 题 × 30 步训练出来的模型没有参考价值，**不要拿这里的 reward 判断 GRPO 是否有效**。
+**This isn't about results.** The point was to check that training works with vLLM speeding up generation, and to measure time per step and memory so we could estimate the cost of the full run. A model trained on 64 questions for 30 steps doesn't tell you anything, so **don't use the reward here to judge whether GRPO works**.
 
-和 `results_summary/grpo_pilot/`（T4，QLoRA，不开 vLLM）的唯一实质区别是：**基座不量化（bf16）+ 用 vLLM 生成**。数据、超参数完全相同。
+The only real difference from `results_summary/grpo_pilot/` (T4, QLoRA, no vLLM) is: **the base model isn't quantized (bf16) + generation runs on vLLM**. Data and hyperparameters are exactly the same.
 
-完整输出（含 LoRA adapter、`train_log.txt`）在 Google Drive `medqa-calibration/grpo_pilot/grpo_pilot_bf16_vllm_A100-SXM4-40GB_20261030_004033/`，`train_log.txt` 也复制到了本地 `outputs/grpo_pilot/` 下同名目录，不提交到 git。
+The full output (LoRA adapter, `train_log.txt`) isn't in the repo.
 
-## 为什么不用 QLoRA + vLLM
+## Why not QLoRA + vLLM
 
-先在 A100 上试过 QLoRA（4-bit）+ vLLM（结果只留在 Drive）。每步约 30.8 秒，但**训练后半程实际上没在学习**：
+We tried QLoRA (4-bit) + vLLM on an A100 first (those results aren't in the repo). It took about 30.8 s per step, but **in the second half of training it wasn't actually learning**:
 
-| 指标 | QLoRA + vLLM | bf16 LoRA + vLLM（本次） |
+| Metric | QLoRA + vLLM | bf16 LoRA + vLLM (this run) |
 |---|---|---|
-| `sampling/sampling_logp_difference/mean`（vLLM 与训练模型的差异） | 0.025 → 0.27，持续上涨 | 30 步一直 0.022–0.025 |
-| `sampling/importance_sampling_ratio/mean` | 0.46 → 2e-7 | 一直在 0.5–1.2 |
-| grad_norm（第 14 步以后） | 约 0.001 | 0.06–0.29 |
-| 每步耗时 | 30.8 秒 | **8.6 秒** |
+| `sampling/sampling_logp_difference/mean` (gap between vLLM and the training model) | 0.025 -> 0.27, kept climbing | stayed at 0.022-0.025 for all 30 steps |
+| `sampling/importance_sampling_ratio/mean` | 0.46 -> 2e-7 | stayed between 0.5 and 1.2 |
+| grad_norm (after step 14) | about 0.001 | 0.06-0.29 |
+| Time per step | 30.8 s | **8.6 s** |
 
-原因（推测，与所有指标一致）：TRL 每步把 LoRA 合并进 4-bit 权重同步给 vLLM 再拆开，4-bit 的舍入误差逐步累积，vLLM 生成用的模型和训练模型越差越远，TRL 的 importance sampling 修正把 loss 权重压到接近 0。不量化时没有这个问题。
+Our best guess (it fits every metric): every step TRL merges LoRA into the 4-bit weights, syncs them to vLLM, then unmerges. The 4-bit rounding error piles up, so the model vLLM generates with drifts further and further from the one being trained, and TRL's importance-sampling correction pushes the loss weights down to almost 0. Without quantization this doesn't happen.
 
-另外两个环境问题（已在 `notebooks/grpo_pilot.ipynb` 第 4 格处理）：vLLM ≥ 0.28 删除了 bitsandbytes 支持，固定 `vllm==0.27.1`；Colab 预装的 torchao 0.10 会让 peft 给不量化模型加 LoRA 时报错，直接卸载。
+Two other environment issues (handled in cell 4 of `notebooks/grpo_pilot.ipynb`): vLLM >= 0.28 dropped bitsandbytes support, so we pin `vllm==0.27.1`; and Colab's preinstalled torchao 0.10 makes peft error out when adding LoRA to an unquantized model, so we just uninstall it.
 
-## 设置
+## Setup
 
-| 项目 | 值 |
+| | |
 |---|---|
-| 模型 | Qwen/Qwen2.5-3B-Instruct，**bf16，不量化**（`--quantization none`） |
-| LoRA | r = 16，alpha = 32，dropout = 0.05，target = all-linear |
-| 数据 | GBaker/MedQA-USMLE-4-options **train** split，seed 42 抽 64 题 |
-| 训练 | 30 步；每步 4 题 × 4 个回答 = 16 条（per_device 4 × grad_accum 4）；64 题约过 1.9 遍 |
-| 生成 | **vLLM colocate**（gpu_memory_utilization 0.3），max_completion_length = 512，temperature = 1.0 |
-| 优化 | lr = 1e-5（linear），beta（KL）= 0.04，loss_type = dapo，scale_rewards = group |
-| reward | 只看正确性：提取最后一个 `Answer: X`，对 = 1，错或没按格式 = 0 |
-| 环境 | Colab A100-SXM4-40GB，bf16；TRL 1.16.0，vllm 0.27.1，transformers 5.20.2，peft 0.21.2，torch 2.13.0 |
+| Model | Qwen/Qwen2.5-3B-Instruct, **bf16, no quantization** (`--quantization none`) |
+| LoRA | r = 16, alpha = 32, dropout = 0.05, target = all-linear |
+| Data | 64 questions from the GBaker/MedQA-USMLE-4-options **train** split, seed 42 |
+| Training | 30 steps; 4 questions x 4 answers = 16 per step (per_device 4 x grad_accum 4); about 1.9 passes over the 64 questions |
+| Generation | **vLLM colocate** (gpu_memory_utilization 0.3), max_completion_length = 512, temperature = 1.0 |
+| Optimization | lr = 1e-5 (linear), beta (KL) = 0.04, loss_type = dapo, scale_rewards = group |
+| Reward | correctness only: take the last `Answer: X`, right = 1, wrong or bad format = 0 |
+| Environment | Colab A100-SXM4-40GB, bf16; TRL 1.16.0, vllm 0.27.1, transformers 5.20.2, peft 0.21.2, torch 2.13.0 |
 
-完整配置见 `pilot_report.json` 的 `config` 和 `effective_grpo_config`。
+The full config is under `config` and `effective_grpo_config` in `pilot_report.json`.
 
-## 结果
+## Results
 
-| 指标 | 结果 |
+| Metric | Result |
 |---|---|
-| 总训练时间 | 4.3 分钟 |
-| 每步耗时（去掉前 2 步预热） | **8.56 秒**（T4 不开 vLLM 为 97.7 秒，A100 不开 vLLM 约 77 秒） |
-| 显存峰值 allocated / reserved | **19.2 / 19.4 GB**（共 39.5 GB，含 vLLM 预留） |
-| 稳定性 | 无 NaN/Inf loss；grad_norm 0.06–0.29（第 7 步 0.0009 是因为 4 组全相同，本来就没有梯度）；KL 最大 0.0010 |
-| reward（第 1 步 / 最后 5 步均值 / 全程均值） | 0.375 / 0.46 / 0.48 |
-| 格式正确率（第 1 步 / 最后 5 步均值） | 0.81 / 0.90 |
-| 截断比例（写满 512 token，全程平均） | 0.09 |
-| 组内 reward 全相同的比例（全程 / 最后 5 步） | 0.40 / 0.20 |
-| 平均回答长度 | 391 token |
+| Total training time | 4.3 min |
+| Time per step (first 2 warmup steps dropped) | **8.56 s** (97.7 s on a T4 without vLLM, about 77 s on an A100 without vLLM) |
+| Peak memory allocated / reserved | **19.2 / 19.4 GB** (out of 39.5 GB, including what vLLM reserves) |
+| Stability | no NaN/Inf loss; grad_norm 0.06-0.29 (0.0009 at step 7 because all 4 groups had the same reward, so there was no gradient anyway); max KL 0.0010 |
+| Reward (step 1 / mean of last 5 / overall mean) | 0.375 / 0.46 / 0.48 |
+| Format rate (step 1 / mean of last 5) | 0.81 / 0.90 |
+| Truncation rate (hit 512 tokens, overall mean) | 0.09 |
+| Share of groups where every reward is the same (overall / last 5) | 0.40 / 0.20 |
+| Mean answer length | 391 tokens |
 
-## 正式训练估算（A100，bf16 LoRA + vLLM，max_completion_length = 512）
+## Full-run estimates (A100, bf16 LoRA + vLLM, max_completion_length = 512)
 
-| 方案 | 总步数 | 估计耗时（GPU 小时） |
+| Setup | Total steps | Estimated GPU hours |
 |---|---|---|
-| 2000 题 × 1 epoch，每题 4 个回答 | 500 | 1.4 |
-| 5000 题 × 1 epoch，每题 4 个回答 | 1250 | 3.4 |
-| 全量 10178 题 × 1 epoch，每题 4 个回答 | 2545 | 7.0 |
+| 2000 questions x 1 epoch, 4 answers each | 500 | 1.4 |
+| 5000 questions x 1 epoch, 4 answers each | 1250 | 3.4 |
+| all 10178 questions x 1 epoch, 4 answers each | 2545 | 7.0 |
 
-估算乘了 1.15 的额外开销系数，公式见 `train/grpo/estimate.py`。**改成 max_completion_length = 1024 后每步会变慢**（一步要等最长的回答写完），粗估每步 12–15 秒；正式训练开始后用前 10 步的实际耗时重新估算。
+These include a 1.15 overhead factor; the formula is in `train/grpo/estimate.py`. **With max_completion_length = 1024 each step gets slower** (a step waits for the longest answer to finish), roughly 12-15 s per step. Re-estimate from the first 10 steps of the real run.
 
-## 结论
+## Takeaways
 
-- **bf16 LoRA + vLLM 可以用于正式训练**：训练正常，速度是 QLoRA 不开 vLLM 的约 9 倍，显存余量大。
-- **QLoRA + vLLM 不要用**：后半程梯度几乎为 0。
-- **可比性**：GRPO 改用 bf16 LoRA 后，SFT / DPO 最好也用 bf16 LoRA，三种方法的差别才只在训练算法上；需要和队友确认。另外 `results_summary/base/` 的基线评估用的是 4-bit 加载，训练后模型的评估设置也要统一。
-- 截断仍有约 9%，正式训练建议 `max_completion_length = 1024`。
-- 训练后的一个样例里混入了一段中文（Qwen 在 temperature 1.0 采样时偶尔出现），正式训练时留意出现频率。
+- **bf16 LoRA + vLLM is good to go for the real run**: training behaves, it's about 9x faster than QLoRA without vLLM, and there's plenty of memory left.
+- **Don't use QLoRA + vLLM**: the gradients go to almost 0 in the second half.
+- **Comparability**: now that GRPO uses bf16 LoRA, SFT / DPO should ideally use bf16 LoRA too, so the only difference between the three is the training algorithm. Needs checking with the team. Also, the baseline eval in `results_summary/base/` loads the model in 4-bit, so eval settings for the trained models need to match too.
+- About 9% of answers still get cut off, so use `max_completion_length = 1024` for the real run.
+- One of the post-training samples slipped into Chinese for a bit (Qwen does this now and then when sampling at temperature 1.0). Worth keeping an eye on how often it happens in the real run.
 
-## 文件
+## Files
 
-| 文件 | 内容 |
+| File | What's in it |
 |---|---|
-| `pilot_report.json` | 完整设置、TRL 实际配置、耗时、显存、reward、稳定性、训练前后各 2 个生成样例、全量训练估算 |
-| `metrics.csv` | 每步一行：耗时、显存、reward 均值/标准差、组内全对/全错/全相同比例、格式正确率、回答长度、截断比例、KL、loss、grad_norm 等 |
-| `curves.png` | 上述主要指标随步数变化的曲线 |
-| `grpo_pilot.ipynb - Colab.pdf` | Colab 运行记录（本地参考，`*.pdf` 被 git 忽略） |
+| `pilot_report.json` | full setup, the config TRL actually used, timing, memory, reward, stability, 2 sample answers before and after training, full-run estimates |
+| `metrics.csv` | one row per step: time, memory, reward mean/std, share of all-right/all-wrong/all-same groups, format rate, answer length, truncation rate, KL, loss, grad_norm, etc. |
+| `curves.png` | the main metrics above plotted over steps |

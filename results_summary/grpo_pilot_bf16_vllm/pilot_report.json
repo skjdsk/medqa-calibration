@@ -43,7 +43,7 @@
     "vllm_gpu_memory_utilization": 0.3,
     "vllm_max_model_length": 2048,
     "output_dir": "/content/outputs/grpo_pilot_bf16_vllm",
-    "drive_dir": "/content/drive/MyDrive/medqa-calibration/grpo_pilot",
+    "drive_dir": "grpo_pilot",
     "run_name": "",
     "save_steps": 0,
     "save_total_limit": 2,
@@ -173,8 +173,8 @@
     "sec_per_step_estimated": 8.559142857142858,
     "wall_hours": 6.958464265873016,
     "gpu_hours": 6.958464265873016,
-    "formula": "C = per_device_bs × grad_accum × num_gpus（每步回答数）; P = C / num_generations（每步题数）; S = ceil(num_questions × epochs / P)（总步数）; t = t_pilot × (per_device_bs × grad_accum) / C_pilot_per_gpu × length_factor（每步秒数）; wall_hours = S × t × overhead_factor / 3600; gpu_hours = wall_hours × num_gpus"
+    "formula": "C = per_device_bs × grad_accum × num_gpus (answers per step); P = C / num_generations (questions per step); S = ceil(num_questions × epochs / P) (total steps); t = t_pilot × (per_device_bs × grad_accum) / C_pilot_per_gpu × length_factor (seconds per step); wall_hours = S × t × overhead_factor / 3600; gpu_hours = wall_hours × num_gpus"
   },
-  "estimate_formula": "C = per_device_bs × grad_accum × num_gpus（每步回答数）; P = C / num_generations（每步题数）; S = ceil(num_questions × epochs / P)（总步数）; t = t_pilot × (per_device_bs × grad_accum) / C_pilot_per_gpu × length_factor（每步秒数）; wall_hours = S × t × overhead_factor / 3600; gpu_hours = wall_hours × num_gpus",
+  "estimate_formula": "C = per_device_bs × grad_accum × num_gpus (answers per step); P = C / num_generations (questions per step); S = ceil(num_questions × epochs / P) (total steps); t = t_pilot × (per_device_bs × grad_accum) / C_pilot_per_gpu × length_factor (seconds per step); wall_hours = S × t × overhead_factor / 3600; gpu_hours = wall_hours × num_gpus",
   "run_name": "grpo_pilot_bf16_vllm_A100-SXM4-40GB_20261030_004033"
 }

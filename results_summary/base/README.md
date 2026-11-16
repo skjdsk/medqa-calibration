@@ -1,32 +1,32 @@
-# base 模型基线（Qwen2.5-3B-Instruct，未训练）
+# Base model baseline (Qwen2.5-3B-Instruct, no training)
 
-评估设置：直接作答（direct），在选项字母上取 logits 归一化得到概率；prompt 版本 `direct-v1`；4-bit nf4 + double quant，compute dtype = bfloat16；seed 42；Colab T4。
-完整设置见各 `preds_base_*_meta.json`。**训练后的模型必须用同样的设置评估，结果才可比。**
+Eval setup: direct answer (direct), probabilities from the logits on the option letters, normalized; prompt version `direct-v1`; 4-bit nf4 + double quant, compute dtype = bfloat16; seed 42; Colab T4.
+The full setup is in each `preds_base_*_meta.json`. **Trained models have to be evaluated with the same setup for the results to be comparable.**
 
-## 结果
+## Results
 
-| 数据集 | 评估集 | n | 准确率 | 平均自信 | ECE | Brier | NLL | 自信≥0.9 且答错 | 自信≥0.9 的题的准确率 |
+| Dataset | Split | n | Accuracy | Mean confidence | ECE | Brier | NLL | Confidence >= 0.9 and wrong | Accuracy when confidence >= 0.9 |
 |---|---|---|---|---|---|---|---|---|---|
-| MedQA（4 选项） | test | 1273 | 0.465 | 0.956 | 0.491 | 0.999 | 5.618 | 565 题（44.4%） | 0.493（1115 题） |
-| MedMCQA | validation | 4183 | 0.448 | 0.957 | 0.509 | 1.044 | 6.831 | 1919 题（45.9%） | 0.471（3627 题） |
-| PubMedQA | pqa_labeled（全部 1000 题） | 1000 | 0.649 | 0.925 | 0.280 | 0.615 | 2.408 | 219 题（21.9%） | 0.717（775 题） |
+| MedQA (4 options) | test | 1273 | 0.465 | 0.956 | 0.491 | 0.999 | 5.618 | 565 (44.4%) | 0.493 (1115 questions) |
+| MedMCQA | validation | 4183 | 0.448 | 0.957 | 0.509 | 1.044 | 6.831 | 1919 (45.9%) | 0.471 (3627 questions) |
+| PubMedQA | pqa_labeled (all 1000) | 1000 | 0.649 | 0.925 | 0.280 | 0.615 | 2.408 | 219 (21.9%) | 0.717 (775 questions) |
 
-`mean_letter_mass` 在三个数据集上都 ≥ 0.989（平均约 1.0），说明模型确实在直接选字母，概率可信。
+`mean_letter_mass` is >= 0.989 on all three datasets (about 1.0 on average), so the model really is picking a letter right away and the probabilities can be trusted.
 
-## 结论
+## Takeaways
 
-- 三个数据集上都**严重过度自信**：平均自信约 0.93–0.96，准确率只有 0.45–0.65。
-- MedQA、MedMCQA 上模型约一半的题答错，但几乎每题都给出很高的自信（绝大多数题自信 ≥ 0.9），自信≥0.9 的题实际准确率不到 0.5。
-- PubMedQA 只有 yes/no/maybe 三个选项，答案分布不均衡，0.649 的准确率不能直接说明模型"更强"，与"总猜多数类"的基线比较时要注意。
-- 训练后希望看到：ECE、Brier、NLL、"自信≥0.9 且答错"的比例下降，可靠性图的柱子向对角线靠近。
+- **Badly overconfident** on all three datasets: mean confidence is about 0.93-0.96 while accuracy is only 0.45-0.65.
+- On MedQA and MedMCQA the model gets about half the questions wrong but is very confident on almost all of them (most questions have confidence >= 0.9), and accuracy on those high-confidence questions is under 0.5.
+- PubMedQA only has three options (yes/no/maybe) and the answers aren't balanced, so 0.649 accuracy doesn't by itself mean the model is "better" there. Keep that in mind when comparing against an always-guess-the-majority baseline.
+- What we'd hope to see after training: lower ECE, Brier, NLL and share of "confidence >= 0.9 and wrong", with the reliability diagram bars moving toward the diagonal.
 
-## 文件
+## Files
 
-| 文件 | 内容 |
+| File | What's in it |
 |---|---|
-| `summary.csv` / `summary.json` | 上表的全部指标（含未列出的 `mean_conf_wrong`、`min_letter_mass` 等） |
-| `bins_base_*_direct.csv` | 15 个等宽置信度区间：每档题数、平均自信、准确率（画可靠性图用） |
-| `reliability_base_*_direct.png` | 可靠性图 |
-| `preds_base_*_meta.json` | 每次评估的完整设置（模型、prompt 版本、量化、seed、库版本、GPU） |
+| `summary.csv` / `summary.json` | every metric in the table above (plus ones not shown, like `mean_conf_wrong` and `min_letter_mass`) |
+| `bins_base_*_direct.csv` | 15 equal-width confidence bins: count, mean confidence and accuracy per bin (used for the reliability diagrams) |
+| `reliability_base_*_direct.png` | reliability diagrams |
+| `preds_base_*_meta.json` | the full setup for each eval run (model, prompt version, quantization, seed, library versions, GPU) |
 
-每题明细（`preds_base_*_direct.csv`，MedMCQA 约 717 KB）没有放进仓库，保存在 Google Drive：`medqa-calibration-results/base/preds/`。
+The per-question predictions (`preds_base_*_direct.csv`, about 717 KB for MedMCQA) aren't in the repo.

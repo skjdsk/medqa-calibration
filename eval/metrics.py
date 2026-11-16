@@ -1,23 +1,23 @@
 """
-metrics.py —— 只根据每题明细 CSV 计算汇总指标、画可靠性图
+metrics.py -- compute summary metrics and draw reliability diagrams from the per-question CSVs only
 =============================================================
 
-【这个文件做什么】
-读入 evaluate.py 输出的一个或多个 preds_*.csv，按 (模型, 数据集, 评估模式) 分组，算出：
-    accuracy               准确率
-    ece                    期望校准误差，15 个等宽区间
-    brier                  多分类 Brier：每题对所有选项求 (p − one_hot)² 之和，再对题目取平均
-    nll                    −log p(正确选项) 的平均
-    hc_wrong_rate          confidence ≥ 0.9 且答错的题数 ÷ 总题数（“很自信却答错”）
-    mean_conf_wrong        答错题目的平均 confidence
-    hc_accuracy / hc_count confidence ≥ 0.9 的题目的准确率，以及这类题有多少道
-    mean_confidence        平均 confidence（和 accuracy 对比可看出整体是过度自信还是不够自信）
-    mean_letter_mass       平均“字母概率总和”（归一化前），检查 prompt 是否合理
-并画可靠性图（reliability diagram）存成 PNG。
+[What this file does]
+Reads one or more preds_*.csv files from evaluate.py, groups them by (model, dataset, eval mode), and computes:
+        accuracy               accuracy
+        ece                    expected calibration error, 15 equal-width bins
+        brier                  multi-class Brier: per question, sum of (p - one_hot)^2 over all options, averaged over questions
+        nll                    mean of -log p(correct option)
+        hc_wrong_rate          questions with confidence >= 0.9 that are wrong / all questions ("very sure but wrong")
+        mean_conf_wrong        mean confidence on the questions it got wrong
+        hc_accuracy / hc_count accuracy on questions with confidence >= 0.9, and how many there are
+        mean_confidence        mean confidence (compare with accuracy to see if it's over- or underconfident overall)
+        mean_letter_mass       mean total letter probability (before normalizing), a sanity check on the prompt
+and saves reliability diagrams as PNGs.
 
-完全不需要模型和 GPU，所以以后改指标定义时直接重跑这个文件即可。
+Needs no model and no GPU, so if a metric definition changes later, just rerun this file.
 
-【运行示例】
+[Example]
     python -m eval.metrics --pred_csv results/preds_*.csv --out_dir results/metrics
 """
 
@@ -37,13 +37,13 @@ GROUP_KEYS = ["model_name", "dataset", "eval_mode"]
 
 
 # ---------------------------------------------------------------------------
-# 从明细表取出概率矩阵
+# get the probability matrix from the per-question table
 # ---------------------------------------------------------------------------
 def prob_matrix(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     """
-    返回 (probs, gold_idx)：
-      probs    形状 [题数, 最大选项数]，这道题不存在的选项（CSV 里是空）记为 0
-      gold_idx 每题正确选项的列号
+    Returns (probs, gold_idx):
+        probs    shape [questions, max options]; options a question doesn't have (empty in the CSV) are 0
+        gold_idx column index of each question's correct option
     """
     cols = [f"prob_{L}" for L in LETTERS if f"prob_{L}" in df.columns]
     probs = df[cols].to_numpy(dtype=float)
@@ -51,23 +51,23 @@ def prob_matrix(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     letter_to_idx = {L: i for i, L in enumerate(LETTERS)}
     gold_idx = df["gold"].map(letter_to_idx).to_numpy()
     if np.any(pd.isna(gold_idx)) or np.any(gold_idx >= probs.shape[1]):
-        raise ValueError("gold 列里有无法识别的字母，或超出了 prob_* 列的范围")
+        raise ValueError("The gold column has letters that can't be parsed or are beyond the prob_* columns")
     row_sums = probs.sum(axis=1)
     if not np.allclose(row_sums, 1.0, atol=1e-4):
-        raise ValueError(f"有题目的选项概率之和不等于 1（范围 {row_sums.min():.4f}–{row_sums.max():.4f}）")
+        raise ValueError(f"Some questions' option probabilities don't sum to 1 (range {row_sums.min():.4f}-{row_sums.max():.4f})")
     return probs, gold_idx.astype(int)
 
 
 # ---------------------------------------------------------------------------
-# 单项指标（输入都是 numpy 数组，方便单元测试）
+# Individual metrics (all take numpy arrays, so they're easy to unit test)
 # ---------------------------------------------------------------------------
 def bin_index(conf: np.ndarray, n_bins: int = 15) -> np.ndarray:
-    """等宽区间编号：[0,1/15) → 0，…，[14/15, 1] → 14（1.0 归入最后一个区间）。"""
+    """Equal-width bin index: [0,1/15) -> 0, ..., [14/15, 1] -> 14 (1.0 goes in the last bin)."""
     return np.clip(np.floor(conf * n_bins).astype(int), 0, n_bins - 1)
 
 
 def reliability_table(conf: np.ndarray, correct: np.ndarray, n_bins: int = 15) -> pd.DataFrame:
-    """每个区间的题数、平均 confidence、准确率。空区间的 conf/acc 为 NaN。"""
+    """Per bin: number of questions, mean confidence, accuracy. Empty bins get NaN for conf/acc."""
     idx = bin_index(conf, n_bins)
     rows = []
     for b in range(n_bins):
@@ -84,7 +84,7 @@ def reliability_table(conf: np.ndarray, correct: np.ndarray, n_bins: int = 15) -
 
 
 def expected_calibration_error(conf: np.ndarray, correct: np.ndarray, n_bins: int = 15) -> float:
-    """ECE = Σ_区间 (该区间题数 / 总题数) × |该区间准确率 − 该区间平均 confidence|"""
+    """ECE = sum over bins of (questions in bin / total) x |bin accuracy - bin mean confidence|"""
     tab = reliability_table(conf, correct, n_bins)
     tab = tab[tab["count"] > 0]
     n = len(conf)
@@ -92,28 +92,28 @@ def expected_calibration_error(conf: np.ndarray, correct: np.ndarray, n_bins: in
 
 
 def brier_score(probs: np.ndarray, gold_idx: np.ndarray) -> float:
-    """多分类 Brier：每题 Σ_选项 (p − one_hot)²，再取平均。范围 0（完美）到 2（满分自信地答错）。"""
+    """Multi-class Brier: per question sum over options of (p - one_hot)^2, then averaged. Ranges from 0 (perfect) to 2 (fully confident and wrong)."""
     onehot = np.zeros_like(probs)
     onehot[np.arange(len(gold_idx)), gold_idx] = 1.0
     return float(((probs - onehot) ** 2).sum(axis=1).mean())
 
 
 def negative_log_likelihood(probs: np.ndarray, gold_idx: np.ndarray, eps: float = 1e-12) -> float:
-    """NLL = 平均 −log p(正确选项)。p 加下限 eps，避免 log(0) 变成无穷大。"""
+    """NLL = mean of -log p(correct option). p gets a floor of eps so log(0) doesn't blow up."""
     p_gold = probs[np.arange(len(gold_idx)), gold_idx]
     return float(-np.log(np.clip(p_gold, eps, 1.0)).mean())
 
 
 def compute_metrics(df: pd.DataFrame, n_bins: int = 15, hc_threshold: float = 0.9) -> dict:
-    """对一组题目（同一模型 × 同一数据集）计算全部汇总指标。"""
+    """Compute every summary metric for one group of questions (one model x one dataset)."""
     probs, gold_idx = prob_matrix(df)
 
-    # 从概率重新算出答案和 confidence，并和 CSV 里的列核对（防止 CSV 被手动改坏）
+    # recompute the answer and confidence from the probabilities and check them against the CSV columns (in case the CSV got edited by hand)
     pred_idx = probs.argmax(axis=1)
     conf = probs.max(axis=1)
     correct = (pred_idx == gold_idx).astype(float)
     if "correct" in df.columns and not np.array_equal(correct, df["correct"].to_numpy(dtype=float)):
-        warnings.warn("CSV 里的 correct 列和由概率重算的结果不一致，以重算结果为准")
+        warnings.warn("The correct column in the CSV doesn't match what the probabilities give; using the recomputed values")
 
     n = len(df)
     wrong = correct == 0
@@ -136,13 +136,13 @@ def compute_metrics(df: pd.DataFrame, n_bins: int = 15, hc_threshold: float = 0.
 
 
 # ---------------------------------------------------------------------------
-# 可靠性图
+# Reliability diagram
 # ---------------------------------------------------------------------------
 def plot_reliability(df: pd.DataFrame, title: str, out_path: str, n_bins: int = 15) -> None:
     """
-    上半部分：每个区间的准确率（柱子）vs 平均 confidence；对角线 = 完美校准。
-              柱子低于对角线 = 过度自信（说得很有把握，实际没那么准）。
-    下半部分：每个区间的题目数量（看 confidence 都集中在哪里）。
+    Top: accuracy per bin (bars) vs mean confidence; the diagonal = perfect calibration.
+                        Bars below the diagonal = overconfident (sounds sure, isn't that accurate).
+    Bottom: number of questions per bin (shows where the confidence piles up).
     """
     import matplotlib
 
@@ -162,7 +162,7 @@ def plot_reliability(df: pd.DataFrame, title: str, out_path: str, n_bins: int = 
     ax.plot([0, 1], [0, 1], linestyle="--", color="gray", linewidth=1, label="Perfect calibration")
     ax.bar(nonempty["bin_lower"], nonempty["accuracy"], width=width, align="edge",
            color="#4C72B0", edgecolor="white", label="Accuracy")
-    # 红色半透明：每个区间“平均 confidence 与准确率之间的差距”
+    # translucent red: the gap between mean confidence and accuracy in each bin
     ax.bar(nonempty["bin_lower"], nonempty["mean_confidence"] - nonempty["accuracy"],
            bottom=nonempty["accuracy"], width=width, align="edge",
            color="#C44E52", alpha=0.35, edgecolor="#C44E52", label="Gap (conf − acc)")
@@ -185,7 +185,7 @@ def plot_reliability(df: pd.DataFrame, title: str, out_path: str, n_bins: int = 
 
 
 # ---------------------------------------------------------------------------
-# 读文件 + 汇总
+# Read files + summarize
 # ---------------------------------------------------------------------------
 def load_predictions(paths: list[str]) -> pd.DataFrame:
     files = []
@@ -194,14 +194,14 @@ def load_predictions(paths: list[str]) -> pd.DataFrame:
         files.extend(matched if matched else [p])
     files = [f for f in dict.fromkeys(files) if f.endswith(".csv")]
     if not files:
-        raise FileNotFoundError(f"没有找到 CSV：{paths}")
+        raise FileNotFoundError(f"No CSVs found: {paths}")
     df = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
     if "eval_mode" not in df.columns:
         df["eval_mode"] = "direct"
     dup = df.duplicated(subset=GROUP_KEYS + ["question_id"])
     if dup.any():
-        raise ValueError(f"同一模型/数据集下有 {dup.sum()} 道重复题目，可能同一个结果文件读了两次")
-    print(f"[metrics] 读入 {len(files)} 个文件，共 {len(df)} 行")
+        raise ValueError(f"{dup.sum()} duplicate questions for the same model/dataset; the same result file may have been read twice")
+    print(f"[metrics] read {len(files)} files, {len(df)} rows")
     return df
 
 
@@ -226,8 +226,8 @@ def summarize(df: pd.DataFrame, n_bins: int = 15, hc_threshold: float = 0.9,
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(description="从每题明细 CSV 计算校准指标")
-    p.add_argument("--pred_csv", nargs="+", required=True, help="一个或多个 CSV，可以用通配符")
+    p = argparse.ArgumentParser(description="Compute calibration metrics from per-question CSVs")
+    p.add_argument("--pred_csv", nargs="+", required=True, help="one or more CSVs, wildcards OK")
     p.add_argument("--out_dir", default="results/metrics")
     p.add_argument("--n_bins", type=int, default=15)
     p.add_argument("--hc_threshold", type=float, default=0.9)
@@ -242,7 +242,7 @@ def main(argv=None):
         json.dump(summary.to_dict(orient="records"), f, indent=2, ensure_ascii=False)
     with pd.option_context("display.max_columns", None, "display.width", 200):
         print(summary.round(4).to_string(index=False))
-    print(f"[metrics] 已保存到 {a.out_dir}/（summary.csv、summary.json、bins_*.csv、reliability_*.png）")
+    print(f"[metrics] saved to {a.out_dir}/ (summary.csv, summary.json, bins_*.csv, reliability_*.png)")
 
 
 if __name__ == "__main__":

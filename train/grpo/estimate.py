@@ -1,39 +1,39 @@
 """
-train/grpo/estimate.py —— 用试跑测到的"每步耗时"估算正式训练要多少 GPU 小时
+train/grpo/estimate.py -- estimate GPU hours for a full run from the time per step measured in the pilot
 
-⚠️ 试跑专用：只在 GRPO 试跑（pilot）之后用来估算正式训练的开销，不是训练流程本身的一部分。
-   （grpo.py 会 import 这里的 FORMULA 和 estimate_gpu_hours 写进试跑报告，所以文件需要保留。）
+Pilot only: used after the GRPO pilot to estimate the cost of the full run. Not part of training itself.
+      (grpo.py imports FORMULA and estimate_gpu_hours from here for the pilot report, so the file has to stay.)
 
-【这个文件做什么（简单版）】
-输入：正式训练的题数、epoch 数、每题生成数、batch 设置（+ 试跑报告 pilot_report.json）
-输出：预计总步数、每步耗时、墙钟小时数、GPU 小时数
+[What this file does]
+In: number of questions, epochs, generations per question, batch settings (+ the pilot's pilot_report.json)
+Out: expected total steps, time per step, wall-clock hours, GPU hours
 
-【公式】（TRL GRPO 里 per_device_train_batch_size 的单位是"回答条数"，不是"题数"）
+[Formula] (in TRL GRPO, per_device_train_batch_size counts answers, not questions)
 
-  每步回答数   C   = per_device_train_batch_size × gradient_accumulation_steps × num_gpus
-  每步题数     P   = C / num_generations                  （必须整除，TRL 的硬性要求）
-  总步数       S   = ceil(题数 × epochs / P)
+    answers per step     C   = per_device_train_batch_size x gradient_accumulation_steps x num_gpus
+    questions per step   P   = C / num_generations                  (has to divide evenly; TRL requires it)
+    total steps          S   = ceil(questions x epochs / P)
 
-  每步耗时     t   = t_pilot × (C_per_gpu / C_pilot_per_gpu) × length_factor
-      t_pilot         ：试跑中去掉前几步预热后的平均每步秒数
-      C_per_gpu       ：正式训练每张卡每步处理的回答数 = per_device × grad_accum
-      C_pilot_per_gpu ：试跑每步回答数（默认 4 × 4 = 16）
-      假设耗时与"每步回答数"成正比 → 偏保守（生成阶段 batch 变大时实际增长慢于线性）
-      length_factor   ：如果正式训练的 max_completion_length 不同，填 新长度/试跑长度（同样偏保守）
+    time per step        t   = t_pilot x (C_per_gpu / C_pilot_per_gpu) x length_factor
+            t_pilot         : average seconds per step in the pilot, after dropping the first few warmup steps
+            C_per_gpu       : answers per GPU per step in the full run = per_device x grad_accum
+            C_pilot_per_gpu : answers per step in the pilot (default 4 x 4 = 16)
+            assumes time scales with answers per step -> on the safe side (generation grows slower than linear with batch size)
+            length_factor   : if the full run uses a different max_completion_length, put new length / pilot length (also on the safe side)
 
-  墙钟小时     H   = S × t × overhead_factor / 3600
-      overhead_factor：额外开销（保存 checkpoint、偶尔变长的回答、Colab 断连重跑），默认 1.15
-  GPU 小时         = H × num_gpus
+    wall-clock hours     H   = S x t x overhead_factor / 3600
+            overhead_factor: extra overhead (saving checkpoints, the odd long answer, Colab disconnects and reruns), default 1.15
+    GPU hours                = H x num_gpus
 
-⚠️ 注意：训练过程中模型回答可能变长或变短，每步耗时会随之变化。
-   如果试跑里截断比例（truncated_frac）> 0，说明每批都有回答写满 512 token，
-   而 HF generate 要等最长的那条写完 → 生成时间基本被"最长回答"决定。
+Note: answers can get longer or shorter during training, and time per step changes with them.
+      If the pilot's truncation rate (truncated_frac) is > 0, some answer in every batch hits 512 tokens,
+      and HF generate waits for the longest one -> generation time is basically set by the longest answer.
 
-【命令行用法】
+[Command line]
     python -m train.grpo.estimate --report outputs/grpo_pilot/pilot_report.json \\
         --num_questions 10178 --epochs 1 --num_generations 4 \\
         --per_device_train_batch_size 4 --gradient_accumulation_steps 4
-    # 加 --grid 打印多种方案对比表
+    # add --grid to print a comparison table of several setups
 """
 
 from __future__ import annotations
@@ -46,10 +46,10 @@ from pathlib import Path
 from typing import Any
 
 FORMULA = (
-    "C = per_device_bs × grad_accum × num_gpus（每步回答数）; "
-    "P = C / num_generations（每步题数）; "
-    "S = ceil(num_questions × epochs / P)（总步数）; "
-    "t = t_pilot × (per_device_bs × grad_accum) / C_pilot_per_gpu × length_factor（每步秒数）; "
+    "C = per_device_bs × grad_accum × num_gpus (answers per step); "
+    "P = C / num_generations (questions per step); "
+    "S = ceil(num_questions × epochs / P) (total steps); "
+    "t = t_pilot × (per_device_bs × grad_accum) / C_pilot_per_gpu × length_factor (seconds per step); "
     "wall_hours = S × t × overhead_factor / 3600; gpu_hours = wall_hours × num_gpus"
 )
 
@@ -66,13 +66,13 @@ def estimate_gpu_hours(
     length_factor: float = 1.0,
     overhead_factor: float = 1.15,
 ) -> dict[str, Any]:
-    """按上面的公式估算。所有输入都是普通数字，方便在 notebook 里直接调用。"""
+    """Estimate using the formula above. All inputs are plain numbers so it's easy to call from a notebook."""
     completions_per_gpu = per_device_train_batch_size * gradient_accumulation_steps
     completions_per_step = completions_per_gpu * num_gpus
     if completions_per_step % num_generations != 0:
         raise ValueError(
-            f"每步回答数 {completions_per_step}（= {per_device_train_batch_size}×"
-            f"{gradient_accumulation_steps}×{num_gpus}）必须能被 num_generations={num_generations} 整除"
+            f"answers per step {completions_per_step} (= {per_device_train_batch_size}x"
+            f"{gradient_accumulation_steps}x{num_gpus}) has to be divisible by num_generations={num_generations}"
         )
     prompts_per_step = completions_per_step // num_generations
     total_steps = math.ceil(num_questions * epochs / prompts_per_step)
@@ -105,7 +105,7 @@ def estimate_gpu_hours(
 
 
 def load_pilot_timing(report_path: str | Path) -> tuple[float, int, int, str]:
-    """从 pilot_report.json 读出 (每步秒数, 试跑每卡每步回答数, 试跑 max_completion_length, GPU 名)。"""
+    """Read (seconds per step, pilot answers per GPU per step, pilot max_completion_length, GPU name) from pilot_report.json."""
     with open(report_path, encoding="utf-8") as f:
         report = json.load(f)
     t = report["timing"]["avg_step_time_s_excl_warmup"]
@@ -128,31 +128,31 @@ def estimate_from_report(report_path: str | Path, max_completion_length: int | N
 
 def format_estimate(r: dict[str, Any]) -> str:
     return (
-        f"题数={r['num_questions']} × epochs={r['epochs']} | 每题生成 {r['num_generations']} | "
-        f"batch {r['per_device_train_batch_size']}×{r['gradient_accumulation_steps']}×{r['num_gpus']}卡 "
-        f"→ 每步 {r['prompts_per_step']} 题/{r['completions_per_step']} 条回答 | "
-        f"总步数 {r['total_steps']} | 每步≈{r['sec_per_step_estimated']:.1f}s | "
-        f"墙钟≈{r['wall_hours']:.1f}h | GPU 小时≈{r['gpu_hours']:.1f}"
+        f"questions={r['num_questions']} x epochs={r['epochs']} | {r['num_generations']} generations per question | "
+        f"batch {r['per_device_train_batch_size']}x{r['gradient_accumulation_steps']}x{r['num_gpus']} GPU "
+        f"-> {r['prompts_per_step']} questions/{r['completions_per_step']} answers per step | "
+        f"total steps {r['total_steps']} | per step ~{r['sec_per_step_estimated']:.1f}s | "
+        f"wall-clock ~{r['wall_hours']:.1f}h | GPU hours ~{r['gpu_hours']:.1f}"
     )
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="用试跑结果估算正式 GRPO 训练的 GPU 小时")
-    p.add_argument("--report", required=True, help="pilot_report.json 路径")
+    p = argparse.ArgumentParser(description="Estimate GPU hours for a full GRPO run from the pilot results")
+    p.add_argument("--report", required=True, help="path to pilot_report.json")
     p.add_argument("--num_questions", type=int, default=10178)
     p.add_argument("--epochs", type=float, default=1.0)
     p.add_argument("--num_generations", type=int, default=4)
     p.add_argument("--per_device_train_batch_size", type=int, default=4)
     p.add_argument("--gradient_accumulation_steps", type=int, default=4)
     p.add_argument("--num_gpus", type=int, default=1)
-    p.add_argument("--max_completion_length", type=int, default=None, help="不填则与试跑相同")
+    p.add_argument("--max_completion_length", type=int, default=None, help="defaults to the pilot's value")
     p.add_argument("--overhead_factor", type=float, default=1.15)
-    p.add_argument("--grid", action="store_true", help="打印多种方案的对比表")
+    p.add_argument("--grid", action="store_true", help="print a comparison table of several setups")
     args = p.parse_args()
 
     t, c, pilot_len, gpu = load_pilot_timing(args.report)
-    print(f"[试跑] GPU={gpu}  每步 {t:.1f}s  每步 {c} 条回答  max_completion_length={pilot_len}")
-    print(f"[公式] {FORMULA}\n")
+    print(f"[pilot] GPU={gpu}  {t:.1f}s per step  {c} answers per step  max_completion_length={pilot_len}")
+    print(f"[formula] {FORMULA}\n")
 
     common = dict(
         num_gpus=args.num_gpus,
@@ -168,13 +168,13 @@ def main() -> None:
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         **common,
     )
-    print("[你的方案] " + format_estimate(r))
+    print("[your setup] " + format_estimate(r))
 
     if args.grid:
-        print("\n[方案对比]（batch 设置固定为每卡每步 per_device × grad_accum 条回答）")
+        print("\n[comparison] (batch fixed at per_device x grad_accum answers per GPU per step)")
         for nq in (2000, 5000, args.num_questions):
             for gens in (4, 8):
-                # 保持"每步题数"不变：生成数翻倍 → grad_accum 翻倍
+                # keep questions per step the same: double the generations -> double grad_accum
                 ga = args.gradient_accumulation_steps * gens // args.num_generations
                 try:
                     rr = estimate_from_report(
@@ -188,7 +188,7 @@ def main() -> None:
                     )
                     print("  " + format_estimate(rr))
                 except ValueError as e:
-                    print(f"  题数={nq} 生成数={gens}: {e}")
+                    print(f"  questions={nq} generations={gens}: {e}")
 
 
 if __name__ == "__main__":

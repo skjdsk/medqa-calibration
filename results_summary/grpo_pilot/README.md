@@ -1,61 +1,61 @@
-# GRPO 试跑（pilot）
+# GRPO pilot
 
-**目的不是看效果**，而是在正式训练前测出：每步耗时、显存峰值、训练是否稳定、参数是否合理，并据此估算正式训练要多少 GPU 小时。64 题 × 30 步训练出来的模型没有参考价值，**不要拿这里的 reward 判断 GRPO 是否有效**。
+**This isn't about results.** The point was to measure, before the real run, how long a step takes, how much memory it uses, whether training is stable and whether the settings make sense, and then estimate how many GPU hours the full run would need. A model trained on 64 questions for 30 steps doesn't tell you anything, so **don't use the reward here to judge whether GRPO works**.
 
-完整输出（含 LoRA adapter 约 120 MB、`train_log.txt`）只保存在本地 `outputs/grpo_pilot/grpo_pilot_Tesla_20261025_213538/` 和 Google Drive，不提交到 git。
+The full output (LoRA adapter, about 120 MB, and `train_log.txt`) isn't in the repo.
 
-## 设置
+## Setup
 
-| 项目 | 值 |
+| | |
 |---|---|
-| 模型 | Qwen/Qwen2.5-3B-Instruct，4-bit nf4（QLoRA） |
-| LoRA | r = 16，alpha = 32，dropout = 0.05，target = all-linear |
-| 数据 | GBaker/MedQA-USMLE-4-options **train** split，seed 42 抽 64 题 |
-| 训练 | 30 步；每步 4 题 × 4 个回答 = 16 条（per_device 4 × grad_accum 4）；64 题约过 1.9 遍 |
-| 生成 | max_completion_length = 512，temperature = 1.0 |
-| 优化 | lr = 1e-5（linear），beta（KL）= 0.04，loss_type = dapo，scale_rewards = group |
-| reward | 只看正确性：提取最后一个 `Answer: X`，对 = 1，错或没按格式 = 0 |
-| 环境 | Colab Tesla T4（14.56 GB），fp16，gradient checkpointing；TRL 1.16.0，transformers 5.20.2，peft 0.21.2，bitsandbytes 0.50.2，torch 2.11.0 |
+| Model | Qwen/Qwen2.5-3B-Instruct, 4-bit nf4 (QLoRA) |
+| LoRA | r = 16, alpha = 32, dropout = 0.05, target = all-linear |
+| Data | 64 questions from the GBaker/MedQA-USMLE-4-options **train** split, seed 42 |
+| Training | 30 steps; 4 questions x 4 answers = 16 per step (per_device 4 x grad_accum 4); about 1.9 passes over the 64 questions |
+| Generation | max_completion_length = 512, temperature = 1.0 |
+| Optimization | lr = 1e-5 (linear), beta (KL) = 0.04, loss_type = dapo, scale_rewards = group |
+| Reward | correctness only: take the last `Answer: X`, right = 1, wrong or bad format = 0 |
+| Environment | Colab Tesla T4 (14.56 GB), fp16, gradient checkpointing; TRL 1.16.0, transformers 5.20.2, peft 0.21.2, bitsandbytes 0.50.2, torch 2.11.0 |
 
-完整配置（包括 TRL 实际生效的参数）见 `pilot_report.json` 的 `config` 和 `effective_grpo_config`。TRL 没有忽略任何参数（`dropped_config_keys` 为空）。
+The full config (including what TRL actually used) is under `config` and `effective_grpo_config` in `pilot_report.json`. TRL didn't ignore any parameters (`dropped_config_keys` is empty).
 
-## 结果
+## Results
 
-| 指标 | 结果 |
+| Metric | Result |
 |---|---|
-| 总训练时间 | 48.9 分钟 |
-| 每步耗时（去掉前 2 步预热） | **97.7 秒** |
-| 显存峰值 allocated / reserved | **3.83 / 4.32 GB**（T4 共 14.56 GB） |
-| 稳定性 | 无 NaN/Inf loss；最大 grad_norm 0.295；KL 最大 0.00018 |
-| reward（第 1 步 / 最后 5 步均值 / 全程均值） | 0.44 / 0.375 / 0.42 |
-| 格式正确率（第 1 步 / 最后 5 步均值） | 1.00 / 0.875 |
-| 截断比例（写满 512 token，全程平均） | 0.10 |
-| 组内 reward 全相同的比例（全程 / 最后 5 步） | 0.39 / 0.30 |
-| 平均回答长度 | 367 token |
+| Total training time | 48.9 min |
+| Time per step (first 2 warmup steps dropped) | **97.7 s** |
+| Peak memory allocated / reserved | **3.83 / 4.32 GB** (out of 14.56 GB on the T4) |
+| Stability | no NaN/Inf loss; max grad_norm 0.295; max KL 0.00018 |
+| Reward (step 1 / mean of last 5 / overall mean) | 0.44 / 0.375 / 0.42 |
+| Format rate (step 1 / mean of last 5) | 1.00 / 0.875 |
+| Truncation rate (hit 512 tokens, overall mean) | 0.10 |
+| Share of groups where every reward is the same (overall / last 5) | 0.39 / 0.30 |
+| Mean answer length | 367 tokens |
 
-## 正式训练估算（T4，按本次每步耗时）
+## Full-run estimates (T4, based on this time per step)
 
-| 方案 | 总步数 | 估计耗时（GPU 小时） |
+| Setup | Total steps | Estimated GPU hours |
 |---|---|---|
-| 全量 10178 题 × 1 epoch，每题 4 个回答 | 2545 | 79.4 |
-| 5000 题 × 1 epoch，每题 4 个回答 | 1250 | 39.0 |
-| 2000 题 × 1 epoch，每题 4 个回答 | 500 | 15.6 |
-| 全量 10178 题 × 1 epoch，每题 8 个回答 | 2545 | 158.8 |
+| all 10178 questions x 1 epoch, 4 answers each | 2545 | 79.4 |
+| 5000 questions x 1 epoch, 4 answers each | 1250 | 39.0 |
+| 2000 questions x 1 epoch, 4 answers each | 500 | 15.6 |
+| all 10178 questions x 1 epoch, 8 answers each | 2545 | 158.8 |
 
-估算假设耗时与每步回答数成正比，并乘了 1.15 的额外开销系数，偏保守。公式见 `train/grpo/estimate.py`。
+These assume time scales with answers per step and include a 1.15 overhead factor, so they're on the safe side. The formula is in `train/grpo/estimate.py`.
 
-## 结论
+## Takeaways
 
-- **代码和配置可以用**：训练稳定，显存余量很大，打分函数能正确提取答案。
-- **T4 上跑全量不可行**（约 79 小时）。正式训练需要减少题数，或换 A100 并开启 vLLM 加速生成。
-- **截断会拉低 reward**：格式正确率最低的几步（0.75，第 12、17、26、28 步），截断比例也最高（0.25）。写满 512 token 还没写到 `Answer: X` 的回答被记为 0 分，与"答错"混在一起。正式训练建议把 `max_completion_length` 提高到 768 或 1024；显存足够，但每步会变慢，需要重新估算。
-- **约 3–4 成的组 reward 全相同**（全对或全错），这些题当步没有梯度。偏高但可接受；如果正式训练中更高，可以考虑增大每题回答数（会使耗时翻倍）。
-- reward 在 30 步内没有上升趋势，符合预期（题少、步数少），不说明方法无效。
+- **The code and config work**: training is stable, there's plenty of memory to spare, and the reward function pulls out answers correctly.
+- **A full run on a T4 isn't realistic** (about 79 hours). The real run needs fewer questions, or an A100 with vLLM for faster generation.
+- **Truncation drags the reward down**: the steps with the lowest format rate (0.75, steps 12, 17, 26, 28) also had the highest truncation (0.25). Answers that hit 512 tokens before getting to `Answer: X` score 0, same as a wrong answer. For the real run, raise `max_completion_length` to 768 or 1024. Memory is fine, but steps get slower, so the estimate needs redoing.
+- **About 30-40% of groups have the same reward for every answer** (all right or all wrong), so those questions give no gradient that step. A bit high but OK; if it gets worse in the real run, more answers per question would help (but doubles the time).
+- Reward doesn't trend up in 30 steps. That's expected with so few questions and steps and doesn't mean the method doesn't work.
 
-## 文件
+## Files
 
-| 文件 | 内容 |
+| File | What's in it |
 |---|---|
-| `pilot_report.json` | 完整设置、TRL 实际配置、耗时、显存、reward、稳定性、训练前后各 2 个生成样例、全量训练估算 |
-| `metrics.csv` | 每步一行：耗时、显存、reward 均值/标准差、组内全对/全错/全相同比例、格式正确率、回答长度、截断比例、KL、loss、grad_norm 等 |
-| `curves.png` | 上述主要指标随步数变化的曲线 |
+| `pilot_report.json` | full setup, the config TRL actually used, timing, memory, reward, stability, 2 sample answers before and after training, full-run estimates |
+| `metrics.csv` | one row per step: time, memory, reward mean/std, share of all-right/all-wrong/all-same groups, format rate, answer length, truncation rate, KL, loss, grad_norm, etc. |
+| `curves.png` | the main metrics above plotted over steps |

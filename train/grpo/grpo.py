@@ -1,49 +1,49 @@
 """
-train/grpo/grpo.py —— GRPO 试跑（pilot）主程序
+train/grpo/grpo.py -- GRPO training script (used for both the pilot and the full runs)
 
-【这个文件做什么（简单版）】
-  1. 打印环境信息（GPU 型号、TRL / transformers / peft / bitsandbytes 版本），自动选择 bf16 或 fp16
-  2. 从 MedQA **训练集**用固定种子抽 N 题（默认 64），构造 Qwen chat template 的 prompt
-  3. 用 4-bit（nf4）加载 Qwen2.5-3B-Instruct，加上 LoRA adapter（QLoRA）；--quantization none 时改用 bf16 + LoRA
-  4. 训练前：随机生成 2 个回答，打印内容和 reward
-  5. 用 TRL 的 GRPOTrainer 训练 max_steps 步（默认 30），每一步记录：
-        耗时、显存峰值、平均 reward / 标准差、组内 reward 全相同比例、回答长度、截断比例、格式正确率、KL
-     → 写入 metrics.csv（每步一行，边训练边写，中途断掉也不会全丢）
-  6. 训练后：再对同样 2 道题生成回答，打印对比
-  7. 保存 LoRA adapter、metrics.csv、pilot_report.json、曲线图 curves.png；如果给了 --drive_dir，整个目录复制到 Google Drive
+[What this file does]
+    1. Prints the environment (GPU, TRL / transformers / peft / bitsandbytes versions) and picks bf16 or fp16
+    2. Takes N questions from the MedQA **training set** (default 64) and builds Qwen chat-template prompts
+    3. Loads Qwen2.5-3B-Instruct in 4-bit (nf4) with a LoRA adapter (QLoRA); with --quantization none it's bf16 + LoRA
+    4. Before training: samples 2 answers and prints them with their reward
+    5. Trains with TRL's GRPOTrainer for max_steps steps (default 30), logging every step:
+                time, peak memory, mean reward / std, share of all-same groups, answer length, truncation rate, format rate, KL
+          -> written to metrics.csv (one row per step, written as it goes, so a crash doesn't lose everything)
+    6. After training: generates answers for the same 2 questions again for comparison
+    7. Saves the LoRA adapter, metrics.csv, pilot_report.json and curves.png; with --drive_dir it also copies the folder to Google Drive
 
-【GRPO 一步在做什么】（帮助理解耗时和显存从哪来）
-  每个"优化步"（optimizer step）：
-   a) 取 P 道题（P = 每步回答数 / num_generations，默认 16/4 = 4 题）
-   b) 每道题生成 num_generations 个回答（默认 4 个）→ 一共 16 条回答        ← 通常最慢的部分（逐 token 生成）
-   c) 用 rewards.py 给每条回答打 0/1 分
-   d) 组内比较得到 advantage：advantage = (reward - 组内平均) / 组内标准差（全对/全错的组 advantage = 0）
-   e) 分 gradient_accumulation_steps 次（默认 4 次，每次 4 条回答）前向+反向，累积梯度后更新一次 LoRA
-      如果 beta > 0，还要额外算一次"关掉 LoRA 的原始模型"的概率，用来计算 KL 惩罚
+[What one GRPO step does] (helps explain where the time and memory go)
+    Each optimizer step:
+      a) take P questions (P = answers per step / num_generations, default 16/4 = 4)
+      b) generate num_generations answers per question (default 4) -> 16 answers total        <- usually the slowest part (token-by-token generation)
+      c) score each answer 0/1 with rewards.py
+      d) compare within each group to get advantage = (reward - group mean) / group std (all-right / all-wrong groups get 0)
+      e) forward + backward in gradient_accumulation_steps chunks (default 4 chunks of 4 answers), then one LoRA update
+            if beta > 0, there's one more forward pass with LoRA turned off ("the original model") to compute the KL penalty
 
-【哪些参数影响显存 / 速度】
-  显存：per_device_train_batch_size（每次前向/反向的回答条数，最主要）、max_completion_length（序列长度）、
-        gradient_checkpointing（开着省显存但慢 ~20–30%）、lora_r（影响很小）、use_vllm（会额外占显存）
-  速度：max_completion_length（生成要逐 token 走完，最长那条回答决定生成时间）、
-        每步回答数 = per_device_train_batch_size × gradient_accumulation_steps、num_generations、
-        beta > 0（多一次参考模型前向，约 +10–20%）、use_vllm（A100 上生成可快数倍）
+[What affects memory / speed]
+    memory: per_device_train_batch_size (answers per forward/backward, the big one), max_completion_length (sequence length),
+                gradient_checkpointing (saves memory but ~20-30% slower), lora_r (barely matters), use_vllm (takes extra memory)
+    speed: max_completion_length (generation runs token by token, so the longest answer sets the time),
+                answers per step = per_device_train_batch_size x gradient_accumulation_steps, num_generations,
+                beta > 0 (one extra reference forward pass, about +10-20%), use_vllm (generation can be several times faster on an A100)
 
-【运行】（在 repo 根目录）
+[Running] (from the repo root)
     python -m train.grpo.grpo --n_questions 64 --max_steps 30 --output_dir outputs/grpo_pilot \\
         --drive_dir /content/drive/MyDrive/medqa-calibration/grpo_pilot
-  正式训练（按 epoch 算步数，每 100 步存 checkpoint 到 Drive；Colab 断开后加 --resume 重跑同一条命令即可续上）：
+    Full run (steps come from epochs, checkpoint every 100 steps; if Colab disconnects, rerun the same command with --resume):
     python -m train.grpo.grpo --n_questions 0 --seed 1 --num_train_epochs 1 --num_generations 8 \\
         --gradient_accumulation_steps 8 --max_completion_length 1024 --quantization none --use_vllm \\
-        --output_dir /content/drive/MyDrive/medqa-calibration/grpo/<实验名> --save_steps 100 --resume
-  先只跑前 300 步看看（学习率计划不变；之后去掉 --stop_after_step 原样重跑即可接着跑完）：加 --stop_after_step 300
-  全部参数见 python -m train.grpo.grpo --help
+        --output_dir <output folder>/<run name> --save_steps 100 --resume
+    To run just the first 300 steps (same LR schedule; drop --stop_after_step and rerun to finish): add --stop_after_step 300
+    All options: python -m train.grpo.grpo --help
 """
 
 from __future__ import annotations
 
 import os
 
-# 减少显存碎片导致的"明明还有空间却 OOM"；必须在 import torch 之前设置
+# cuts down on "out of memory even though there's room" from fragmentation; has to be set before importing torch
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import argparse
@@ -59,7 +59,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-# 让 "from train.xxx import ..." 不管用 python -m train.grpo.grpo 还是 python train/grpo/grpo.py 都能工作
+# make "from train.xxx import ..." work with both python -m train.grpo.grpo and python train/grpo/grpo.py
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import torch  # noqa: E402
@@ -74,148 +74,148 @@ from train.grpo.rewards import (  # noqa: E402
     score_completion,
 )
 
-FULL_TRAIN_SIZE = N_TRAIN  # 训练集题数（data/medqa_split_seed42.json 的 5000 题），用于报告里的"正式训练"估算
+FULL_TRAIN_SIZE = N_TRAIN  # number of training questions (the 5000 in data/medqa_split_seed42.json), used for the full-run estimate in the report
 
 
 # ---------------------------------------------------------------------------
-# 命令行参数（全部可配置）
+# Command-line options (everything is configurable)
 # ---------------------------------------------------------------------------
 def parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="GRPO pilot on MedQA (QLoRA + TRL GRPOTrainer)")
 
-    # 数据
+    # data
     p.add_argument("--model_name", default="Qwen/Qwen2.5-3B-Instruct")
     p.add_argument(
         "--n_questions",
         type=int,
         default=64,
-        help="用训练集（data/medqa_split_seed42.json 里的 5000 题）的前几题；0 = 全部 5000 题",
+        help="take the first N training questions (from the 5000 in data/medqa_split_seed42.json); 0 = all 5000",
     )
     p.add_argument(
         "--seed",
         type=int,
         default=42,
-        help="训练的随机种子（LoRA 初始化、生成采样、数据顺序）。用哪些题由划分文件决定，和这个 seed 无关",
+        help="training seed (LoRA init, sampling, data order). Which questions get used comes from the split file, not this seed",
     )
 
-    # 量化
+    # quantization
     p.add_argument(
         "--quantization",
         choices=["4bit", "none"],
         default="4bit",
-        help="4bit（默认）= QLoRA，基座 nf4；none = 基座不量化，用 bf16（A100）/ fp16（T4）+ LoRA。"
-        "QLoRA + --use_vllm 时，每步把 LoRA 合并进 4-bit 权重同步给 vLLM 会累积舍入误差，"
-        "A100 试跑中 importance_sampling_ratio 掉到接近 0、梯度消失；开 vLLM 时建议用 none",
+        help="4bit (default) = QLoRA, nf4 base; none = no quantization, bf16 (A100) / fp16 (T4) base + LoRA. "
+        "With QLoRA + --use_vllm, merging LoRA into the 4-bit weights for vLLM every step piles up rounding error; "
+        "in an A100 pilot importance_sampling_ratio dropped to near 0 and gradients vanished. Use none with vLLM",
     )
 
-    # LoRA（之后 SFT / DPO 用同样的设置）
+    # LoRA (SFT / DPO use the same settings)
     p.add_argument("--lora_r", type=int, default=16)
     p.add_argument("--lora_alpha", type=int, default=32)
     p.add_argument("--lora_dropout", type=float, default=0.05)
     p.add_argument(
         "--lora_target_modules",
         default="all-linear",
-        help='"all-linear" 或逗号分隔的模块名，例如 "q_proj,k_proj,v_proj,o_proj"',
+        help='"all-linear" or comma-separated module names, e.g. "q_proj,k_proj,v_proj,o_proj"',
     )
     p.add_argument(
         "--lora_param_dtype",
         choices=["fp32", "trl_default"],
         default="fp32",
-        help="LoRA 参数的存储精度。TRL 1.16 会把 QLoRA 的 LoRA 参数强制转成 bf16；"
-        "fp32（默认）会转回 fp32：T4 上 fp16 混合精度必须这样，A100 上可避免小学习率的更新被 bf16 舍入掉。",
+        help="storage precision for the LoRA params. TRL 1.16 forces QLoRA's LoRA params to bf16; "
+        "fp32 (default) casts them back: required for fp16 mixed precision on a T4, and on an A100 it keeps small-LR updates from being rounded away in bf16.",
     )
 
-    # GRPO 核心参数
-    p.add_argument("--num_generations", type=int, default=4, help="每题生成几个回答（组大小 G）")
-    p.add_argument("--max_completion_length", type=int, default=512, help="回答最多多少 token")
-    p.add_argument("--max_steps", type=int, default=30, help="训练多少步；--num_train_epochs > 0 时忽略")
+    # core GRPO settings
+    p.add_argument("--num_generations", type=int, default=4, help="answers per question (group size G)")
+    p.add_argument("--max_completion_length", type=int, default=512, help="max tokens per answer")
+    p.add_argument("--max_steps", type=int, default=30, help="number of training steps; ignored when --num_train_epochs > 0")
     p.add_argument(
         "--num_train_epochs",
         type=float,
         default=0,
-        help="> 0 时按 epoch 训练：总步数 = ceil(题数 × epochs / 每步题数)，覆盖 --max_steps（正式训练用）",
+        help="> 0 trains by epoch: total steps = ceil(questions x epochs / questions per step), overrides --max_steps (used for full runs)",
     )
     p.add_argument("--learning_rate", type=float, default=1e-5)
     p.add_argument(
         "--beta",
         type=float,
         default=0.04,
-        help="KL 系数。>0 时会记录 KL（用关掉 LoRA 的模型当参考，不额外占显存，但每步多一次前向）。"
-        "注意 TRL 1.16 的默认值是 0.0。",
+        help="KL coefficient. > 0 also logs KL (the model with LoRA off is the reference, so no extra memory, but one more forward pass per step). "
+        "Note TRL 1.16 defaults to 0.0.",
     )
-    p.add_argument("--temperature", type=float, default=1.0, help="生成温度")
+    p.add_argument("--temperature", type=float, default=1.0, help="sampling temperature")
     p.add_argument("--top_p", type=float, default=1.0)
     p.add_argument(
         "--loss_type",
         default=None,
-        help="不填 = TRL 默认（1.16 为 'dapo'）。可选 'grpo'（原论文按序列长度归一化）、'dr_grpo' 等",
+        help="empty = TRL default ('dapo' in 1.16). Also 'grpo' (original paper, normalized by sequence length), 'dr_grpo', etc.",
     )
     p.add_argument(
         "--scale_rewards",
         default=None,
-        help="不填 = TRL 默认（'group'：advantage 除以组内标准差）。可选 'batch' / 'none'",
+        help="empty = TRL default ('group': advantage divided by the group std). Also 'batch' / 'none'",
     )
 
-    # Batch 设置。注意：TRL GRPO 里 per_device_train_batch_size 的单位是"回答条数"
-    #   每步回答数 = per_device_train_batch_size × gradient_accumulation_steps × GPU 数
-    #   必须能被 num_generations 整除；每步题数 = 每步回答数 / num_generations
-    #   默认 4 × 4 = 16 条回答 = 4 题 × 4 个回答
-    p.add_argument("--per_device_train_batch_size", type=int, default=4, help="每次前向/反向几条回答（显存主要旋钮）")
+    # Batch settings. Note: in TRL GRPO, per_device_train_batch_size counts answers
+    #   answers per step = per_device_train_batch_size x gradient_accumulation_steps x number of GPUs
+    #   has to be divisible by num_generations; questions per step = answers per step / num_generations
+    #   default 4 x 4 = 16 answers = 4 questions x 4 answers
+    p.add_argument("--per_device_train_batch_size", type=int, default=4, help="answers per forward/backward (the main memory knob)")
     p.add_argument("--gradient_accumulation_steps", type=int, default=4)
-    p.add_argument("--no_gradient_checkpointing", action="store_true", help="关闭梯度检查点（更快但更占显存）")
+    p.add_argument("--no_gradient_checkpointing", action="store_true", help="turn off gradient checkpointing (faster but uses more memory)")
 
-    # vLLM（可选，A100 上加速生成）
-    p.add_argument("--use_vllm", action="store_true", help="用 vLLM colocate 模式生成（需要 pip install 'trl[vllm]'）")
+    # vLLM (optional, faster generation on an A100)
+    p.add_argument("--use_vllm", action="store_true", help="generate with vLLM in colocate mode (needs pip install 'trl[vllm]')")
     p.add_argument("--vllm_gpu_memory_utilization", type=float, default=0.3)
     p.add_argument("--vllm_max_model_length", type=int, default=2048)
 
-    # 输出
+    # output
     p.add_argument("--output_dir", default="outputs/grpo_pilot")
-    p.add_argument("--drive_dir", default="", help="Google Drive 目标目录；留空则不复制")
+    p.add_argument("--drive_dir", default="", help="Google Drive folder to copy results to; leave empty to skip")
     p.add_argument(
         "--run_name",
         default="",
-        help="Drive 里的子目录名；留空则自动用 output_dir 的文件夹名 + GPU + 时间（如 grpo_Tesla_20261025_213538）",
+        help="subfolder name on Drive; empty = output_dir folder name + GPU + time (e.g. grpo_Tesla_20261025_213538)",
     )
 
-    # Checkpoint / 断点续跑（正式训练用；试跑默认不存 checkpoint）
+    # Checkpoints / resuming (for full runs; the pilot doesn't save checkpoints by default)
     p.add_argument(
         "--save_steps",
         type=int,
         default=0,
-        help="每隔多少步存一次 checkpoint（含优化器状态，用于断点续跑）；0 = 不存（试跑默认）",
+        help="save a checkpoint every N steps (with optimizer state, for resuming); 0 = don't save (pilot default)",
     )
-    p.add_argument("--save_total_limit", type=int, default=2, help="最多保留几个 checkpoint，旧的自动删除")
+    p.add_argument("--save_total_limit", type=int, default=2, help="max checkpoints to keep; older ones get deleted")
     p.add_argument(
         "--checkpoint_dir",
         default="",
-        help="checkpoint 存放目录；留空 = <output_dir>/checkpoints。"
-        "Colab 上建议放在 Google Drive，断开连接后才不会丢",
+        help="where checkpoints go; empty = <output_dir>/checkpoints. "
+        "On Colab, put it on Google Drive so a disconnect doesn't lose it",
     )
     p.add_argument(
         "--resume",
         action="store_true",
-        help="从 checkpoint_dir 里最新的 checkpoint 继续训练；找不到 checkpoint 则从头开始",
+        help="resume from the latest checkpoint in checkpoint_dir; starts from scratch if there isn't one",
     )
     p.add_argument(
         "--stop_after_step",
         type=int,
         default=0,
-        help="> 0 时训练到这一步就存 checkpoint 并停下（学习率计划仍按完整步数，不变）；"
-        "用来先看前 N 步，之后去掉这个参数加 --resume 即可接着跑完。0 = 不提前停",
+        help="> 0 saves a checkpoint and stops at this step (the LR schedule still assumes the full run); "
+        "use it to look at the first N steps, then drop it and add --resume to finish. 0 = don't stop early",
     )
-    p.add_argument("--num_samples", type=int, default=2, help="训练前后各展示几个生成样例")
-    p.add_argument("--warmup_skip", type=int, default=2, help="算平均每步耗时时跳过前几步（预热）")
-    p.add_argument("--report_last_k", type=int, default=5, help="报告里'最后几步'的平均取几步")
+    p.add_argument("--num_samples", type=int, default=2, help="how many sample answers to show before and after training")
+    p.add_argument("--warmup_skip", type=int, default=2, help="steps to skip (warmup) when averaging time per step")
+    p.add_argument("--report_last_k", type=int, default=5, help="how many final steps to average for 'last steps' in the report")
     return p.parse_args(argv)
 
 
 # ---------------------------------------------------------------------------
-# 环境检测
+# Environment check
 # ---------------------------------------------------------------------------
 def detect_environment() -> dict[str, Any]:
     if not torch.cuda.is_available():
-        raise SystemExit("没有检测到 GPU。请在 Colab 里选择 运行时 → 更改运行时类型 → GPU。")
+        raise SystemExit("No GPU found. In Colab: Runtime -> Change runtime type -> GPU.")
 
     import bitsandbytes
     import peft
@@ -225,8 +225,8 @@ def detect_environment() -> dict[str, Any]:
     name = torch.cuda.get_device_name(0)
     major, minor = torch.cuda.get_device_capability(0)
     total_gb = torch.cuda.get_device_properties(0).total_memory / 1024**3
-    # 用计算能力判断：>= 8.0（A100/L4/H100 等 Ampere 及以后）原生支持 bf16；T4 是 7.5，只能用 fp16。
-    # （不用 torch.cuda.is_bf16_supported()：新版 PyTorch 在 T4 上可能因"软件模拟"返回 True。）
+    # go by compute capability: >= 8.0 (A100/L4/H100, Ampere and later) has native bf16; the T4 is 7.5, so fp16 only.
+    # (not torch.cuda.is_bf16_supported(): newer PyTorch can return True on a T4 because of software emulation.)
     use_bf16 = major >= 8
     env = {
         "gpu_name": name,
@@ -243,9 +243,9 @@ def detect_environment() -> dict[str, Any]:
         "bitsandbytes": bitsandbytes.__version__,
     }
     print("=" * 80)
-    print(f"TRL 版本: {trl.__version__}   （本代码按 TRL 1.16 的参数名编写）")
+    print(f"TRL version: {trl.__version__}   (this code uses TRL 1.16 parameter names)")
     print(
-        f"GPU: {name} (compute {major}.{minor}, {total_gb:.1f} GB) → 精度 {env['precision']}\n"
+        f"GPU: {name} (compute {major}.{minor}, {total_gb:.1f} GB) -> precision {env['precision']}\n"
         f"torch {env['torch']} | CUDA {env['cuda']} | transformers {env['transformers']} | "
         f"peft {env['peft']} | bitsandbytes {env['bitsandbytes']} | python {env['python']}"
     )
@@ -254,21 +254,21 @@ def detect_environment() -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# GRPOConfig：按当前 TRL 版本的参数名构造；不认识的参数会被丢弃并打印警告
+# GRPOConfig: built with the current TRL version's parameter names; unknown ones get dropped with a warning
 # ---------------------------------------------------------------------------
 def check_batch_settings(args) -> dict[str, int]:
-    n_gpus = int(os.environ.get("WORLD_SIZE", "1"))  # Colab 单卡 = 1
+    n_gpus = int(os.environ.get("WORLD_SIZE", "1"))  # single GPU on Colab = 1
     completions_per_gpu = args.per_device_train_batch_size * args.gradient_accumulation_steps
     completions_per_step = completions_per_gpu * n_gpus
     if args.num_generations < 2:
-        raise SystemExit("num_generations 至少为 2（GRPO 需要组内比较）。")
+        raise SystemExit("num_generations has to be at least 2 (GRPO compares answers within a group).")
     if completions_per_step % args.num_generations != 0:
         raise SystemExit(
-            f"batch 设置不合法：每步回答数 = per_device_train_batch_size({args.per_device_train_batch_size}) × "
-            f"gradient_accumulation_steps({args.gradient_accumulation_steps}) × GPU数({n_gpus}) = "
-            f"{completions_per_step}，必须能被 num_generations({args.num_generations}) 整除。\n"
-            f"建议：让 per_device_train_batch_size × gradient_accumulation_steps 是 num_generations 的倍数，"
-            f"例如 num_generations=4 时用 4×4 或 2×8；num_generations=8 时用 4×8 或 8×4。"
+            f"Bad batch settings: answers per step = per_device_train_batch_size({args.per_device_train_batch_size}) x "
+            f"gradient_accumulation_steps({args.gradient_accumulation_steps}) x GPUs({n_gpus}) = "
+            f"{completions_per_step}, which has to be divisible by num_generations({args.num_generations}).\n"
+            f"Tip: make per_device_train_batch_size x gradient_accumulation_steps a multiple of num_generations, "
+            f"e.g. 4x4 or 2x8 for num_generations=4, and 4x8 or 8x4 for num_generations=8."
         )
     info = {
         "num_gpus": n_gpus,
@@ -277,9 +277,9 @@ def check_batch_settings(args) -> dict[str, int]:
         "prompts_per_step": completions_per_step // args.num_generations,
     }
     print(
-        f"[batch] 每步 {info['completions_per_step']} 条回答 = {info['prompts_per_step']} 题 × "
-        f"{args.num_generations} 个回答；每次前向/反向 {args.per_device_train_batch_size} 条，"
-        f"累积 {args.gradient_accumulation_steps} 次更新一次"
+        f"[batch] {info['completions_per_step']} answers per step = {info['prompts_per_step']} questions x "
+        f"{args.num_generations} answers; {args.per_device_train_batch_size} per forward/backward, "
+        f"one update every {args.gradient_accumulation_steps} of those"
     )
     return info
 
@@ -289,48 +289,48 @@ def make_grpo_config(args, env):
 
     dtype_str = "bfloat16" if env["use_bf16"] else "float16"
     kwargs: dict[str, Any] = dict(
-        output_dir=args.checkpoint_dir,  # Trainer 把 checkpoint-<step>/ 存在这里
-        # ---- 训练步数 / 学习率 ----
+        output_dir=args.checkpoint_dir,  # Trainer saves checkpoint-<step>/ here
+        # ---- training steps / learning rate ----
         max_steps=args.max_steps,
         learning_rate=args.learning_rate,
         seed=args.seed,
-        # ---- batch（显存和速度的主要旋钮）----
+        # ---- batch (the main memory and speed knobs) ----
         per_device_train_batch_size=args.per_device_train_batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
-        # TRL 1.16：generation_batch_size 默认 = per_device × GPU数 × steps_per_generation，
-        #           steps_per_generation 默认 = gradient_accumulation_steps
-        #           → 每个优化步只生成一次，一次生成全部 16 条回答。这里不手动设置，保持默认。
+        # TRL 1.16: generation_batch_size defaults to per_device x GPUs x steps_per_generation,
+        #           steps_per_generation defaults to gradient_accumulation_steps
+        #           -> generation happens once per optimizer step, all 16 answers at once. Left at the default here.
         # ---- GRPO ----
         num_generations=args.num_generations,
         max_completion_length=args.max_completion_length,
         temperature=args.temperature,
         top_p=args.top_p,
-        top_k=0,  # 不做 top-k 截断（TRL 默认）。注意 Qwen 自带 generation_config 是 top_k=20，这里显式覆盖
+        top_k=0,  # no top-k cutoff (TRL default). Qwen's own generation_config uses top_k=20, so we override it here
         repetition_penalty=1.0,
         beta=args.beta,
-        num_iterations=1,  # 每批生成的数据只更新一次（标准 GRPO 设置）
-        # ---- 精度 / 显存 ----
+        num_iterations=1,  # each batch of generated data is used for one update (standard GRPO)
+        # ---- precision / memory ----
         bf16=env["use_bf16"],
         fp16=not env["use_bf16"],
         gradient_checkpointing=not args.no_gradient_checkpointing,
-        # TRL 用这些参数加载模型（因为我们把模型名字符串交给 GRPOTrainer）
+        # TRL loads the model with these (since we hand GRPOTrainer the model name as a string)
         model_init_kwargs={"dtype": dtype_str},
-        # ---- 日志 ----
-        logging_steps=1,  # 每步都记录，回调里才能拿到每步的 KL 等指标
+        # ---- logging ----
+        logging_steps=1,  # log every step so the callback gets per-step KL etc.
         report_to="none",
-        # 试跑（save_steps=0）不存中间 checkpoint，结束时手动存 adapter；
-        # 正式训练每 save_steps 步存一次（含优化器状态），只保留最近 save_total_limit 个
+        # pilot (save_steps=0) saves no intermediate checkpoints, just the adapter at the end by hand;
+        # full runs save every save_steps steps (with optimizer state) and keep only the latest save_total_limit
         save_strategy="steps" if args.save_steps > 0 else "no",
         save_steps=args.save_steps if args.save_steps > 0 else 500,
         save_total_limit=args.save_total_limit,
         log_completions=False,
-        remove_unused_columns=False,  # 保留 "answer" 列，打分函数要用
-        # ---- vLLM（可选）----
+        remove_unused_columns=False,  # keep the "answer" column, the reward function needs it
+        # ---- vLLM (optional) ----
         use_vllm=args.use_vllm,
     )
     if args.use_vllm:
         kwargs.update(
-            vllm_mode="colocate",  # 和训练共用同一张 GPU，不需要单独起服务
+            vllm_mode="colocate",  # shares the training GPU, no separate server needed
             vllm_gpu_memory_utilization=args.vllm_gpu_memory_utilization,
             vllm_max_model_length=args.vllm_max_model_length,
         )
@@ -339,40 +339,40 @@ def make_grpo_config(args, env):
     if args.scale_rewards:
         kwargs["scale_rewards"] = args.scale_rewards
 
-    # 版本兼容：只传当前 TRL 版本认识的参数，其余丢弃并警告（TRL API 变化很快）
+    # version compat: only pass parameters this TRL version knows, drop the rest with a warning (the TRL API changes fast)
     valid = {f.name for f in dataclasses.fields(GRPOConfig)}
     dropped = sorted(k for k in kwargs if k not in valid)
     if dropped:
-        print(f"[警告] 当前 TRL 版本的 GRPOConfig 不认识这些参数，已忽略：{dropped}。请检查新版的对应参数名。")
+        print(f"[warning] GRPOConfig in this TRL version doesn't know these, ignored: {dropped}. Check the new names.")
     config = GRPOConfig(**{k: v for k, v in kwargs.items() if k in valid})
     return config, dropped
 
 
 # ---------------------------------------------------------------------------
-# 每步指标记录：TrainerCallback
+# Per-step metric logging: TrainerCallback
 # ---------------------------------------------------------------------------
 CSV_FIELDS = [
     "step",
-    "step_time_s",  # 这一步（生成 + 打分 + 前向反向 + 更新）的耗时
-    "peak_mem_allocated_gb",  # torch.cuda.max_memory_allocated（这一步内的峰值）
-    "peak_mem_reserved_gb",  # PyTorch 实际向显卡申请的峰值（更接近 nvidia-smi 看到的数）
+    "step_time_s",  # time for this step (generate + score + forward/backward + update)
+    "peak_mem_allocated_gb",  # torch.cuda.max_memory_allocated (peak within this step)
+    "peak_mem_reserved_gb",  # peak memory PyTorch actually reserved (closer to what nvidia-smi shows)
     "reward_mean",
     "reward_std",
-    "frac_groups_all_same",  # 组内 reward 全相同（全对或全错）→ advantage 为 0 的组的比例
+    "frac_groups_all_same",  # share of groups where every reward is the same (all right or all wrong) -> advantage 0
     "frac_groups_all_correct",
     "frac_groups_all_wrong",
-    "format_rate",  # 能提取出 "Answer: X" 的比例
+    "format_rate",  # share where we can pull out "Answer: X"
     "mean_completion_tokens",
     "max_completion_tokens",
-    "truncated_frac",  # 写满 max_completion_length 还没结束的比例
+    "truncated_frac",  # share that hit max_completion_length without finishing
     "n_completions",
     "n_groups",
-    "kl",  # TRL 记录的 KL（beta > 0 时才有）
+    "kl",  # KL as logged by TRL (only when beta > 0)
     "loss",
     "grad_norm",
     "entropy",
     "learning_rate",
-    # TRL 自己算的同类指标（用于交叉核对我们自己的统计）
+    # TRL's own versions of similar metrics (to cross-check ours)
     "trl_reward",
     "trl_reward_std",
     "trl_frac_reward_zero_std",
@@ -380,7 +380,7 @@ CSV_FIELDS = [
     "trl_clipped_ratio",
 ]
 
-# TRL 日志 key → CSV 列名（TRL 1.16 的 key；新版本如果改名，对应列会是空的，不影响训练）
+# TRL log key -> CSV column (TRL 1.16 keys; if a newer version renames one, that column is just empty, training is fine)
 TRL_LOG_KEYS = {
     "kl": "kl",
     "loss": "loss",
@@ -396,7 +396,7 @@ TRL_LOG_KEYS = {
 
 
 def _read_metrics_csv(path: Path) -> list[dict[str, Any]]:
-    """读回 metrics.csv（续跑时用）：数字列转回 int/float，空格子转成 None。"""
+    """Read metrics.csv back in (for resuming): numeric columns back to int/float, empty cells to None."""
     rows = []
     with open(path, newline="", encoding="utf-8") as f:
         for raw in csv.DictReader(f):
@@ -417,8 +417,8 @@ def _make_callback_class():
     from transformers import TrainerCallback
 
     class PilotMetricsCallback(TrainerCallback):
-        """每个优化步：开始时清零显存峰值并计时；结束时汇总打分函数收集的指标；
-        on_log 时合并 TRL 记录的 KL 等指标，写一行 CSV。"""
+        """Each optimizer step: reset peak memory and start the timer at the beginning; summarize the reward-function metrics at the end;
+        merge in TRL's KL etc. on on_log and write one CSV row."""
 
         def __init__(self, tracker: RewardTracker, csv_path: Path, max_steps: int, resume: bool = False):
             self.tracker = tracker
@@ -433,16 +433,16 @@ def _make_callback_class():
 
         def on_train_begin(self, args, state, control, **kwargs):
             self.csv_path.parent.mkdir(parents=True, exist_ok=True)
-            # 断点续跑：保留 checkpoint 之前的行（之后的步会重跑，丢掉），再接着往后写
+            # resuming: keep the rows before the checkpoint (later steps get rerun, so drop them), then keep appending
             if self.resume and self.csv_path.exists() and state.global_step > 0:
                 self.rows = [r for r in _read_metrics_csv(self.csv_path) if r["step"] <= state.global_step]
-                print(f"[续跑] 从第 {state.global_step} 步继续；metrics.csv 保留前 {len(self.rows)} 行")
+                print(f"[resume] continuing from step {state.global_step}; keeping the first {len(self.rows)} rows of metrics.csv")
             self._file = open(self.csv_path, "w", newline="", encoding="utf-8")
             self._writer = csv.DictWriter(self._file, fieldnames=CSV_FIELDS, extrasaction="ignore")
             self._writer.writeheader()
             self._writer.writerows(self.rows)
             self._file.flush()
-            self.tracker.pop_step_stats()  # 清掉训练开始前可能残留的记录
+            self.tracker.pop_step_stats()  # clear anything left over from before training started
 
         def on_step_begin(self, args, state, control, **kwargs):
             torch.cuda.synchronize()
@@ -489,14 +489,14 @@ def _make_callback_class():
             print(
                 f"[step {row['step']}/{self.max_steps}] {f('step_time_s', '.1f')}s | "
                 f"mem {f('peak_mem_allocated_gb', '.2f')}GB | reward {f('reward_mean', '.3f')}"
-                f"±{f('reward_std', '.3f')} | 全相同组 {f('frac_groups_all_same', '.2f')} | "
-                f"格式 {f('format_rate', '.2f')} | 长度 {f('mean_completion_tokens', '.0f')} | "
-                f"截断 {f('truncated_frac', '.2f')} | kl {f('kl', '.4f')}",
+                f"±{f('reward_std', '.3f')} | all-same groups {f('frac_groups_all_same', '.2f')} | "
+                f"format {f('format_rate', '.2f')} | length {f('mean_completion_tokens', '.0f')} | "
+                f"truncated {f('truncated_frac', '.2f')} | kl {f('kl', '.4f')}",
                 flush=True,
             )
 
     class StopAfterStepCallback(TrainerCallback):
-        """训练到第 stop_step 步：存一次 checkpoint 再停下。不改 max_steps，所以学习率计划和完整训练完全一样。"""
+        """Save a checkpoint and stop at step stop_step. max_steps stays the same, so the LR schedule matches the full run exactly."""
 
         def __init__(self, stop_step: int):
             self.stop_step = stop_step
@@ -511,11 +511,11 @@ def _make_callback_class():
 
 
 # ---------------------------------------------------------------------------
-# 训练前后的生成样例
+# Sample answers before and after training
 # ---------------------------------------------------------------------------
 @torch.no_grad()
 def show_samples(model, tokenizer, examples, args, title: str) -> list[dict[str, Any]]:
-    """对给定的题目各生成 1 个回答（采样参数与训练一致），打印回答和 reward。"""
+    """Generate 1 answer per question (same sampling settings as training) and print the answer and reward."""
     was_training = model.training
     model.eval()
     device = next(model.parameters()).device
@@ -538,7 +538,7 @@ def show_samples(model, tokenizer, examples, args, title: str) -> list[dict[str,
 
     results = []
     bar = "#" * 80
-    print(f"\n{bar}\n{title}（{len(examples)} 题，生成耗时 {dt:.1f}s）\n{bar}")
+    print(f"\n{bar}\n{title} ({len(examples)} questions, generated in {dt:.1f}s)\n{bar}")
     for i, (ex, text, ids) in enumerate(zip(examples, texts, gen)):
         n_tokens = int((ids != tokenizer.pad_token_id).sum().item())
         pred = extract_answer(text)
@@ -546,7 +546,7 @@ def show_samples(model, tokenizer, examples, args, title: str) -> list[dict[str,
         results.append(
             {"answer": ex["answer"], "pred": pred, "reward": reward, "num_tokens": n_tokens, "completion": text}
         )
-        print(f"--- 样例 {i + 1} | 标准答案 {ex['answer']} | 提取到 {pred} | reward = {reward} | {n_tokens} tokens ---")
+        print(f"--- sample {i + 1} | gold {ex['answer']} | extracted {pred} | reward = {reward} | {n_tokens} tokens ---")
         print(text.strip())
         print()
     if was_training:
@@ -555,7 +555,7 @@ def show_samples(model, tokenizer, examples, args, title: str) -> list[dict[str,
 
 
 # ---------------------------------------------------------------------------
-# 报告 / 图
+# Report / plots
 # ---------------------------------------------------------------------------
 def _nanmean(xs):
     xs = [x for x in xs if isinstance(x, (int, float)) and not math.isnan(x)]
@@ -590,7 +590,7 @@ def build_report(args, env, batch_info, trainer_args, rows, dropped, samples, tr
         "environment": env,
         "trl_version": env["trl"],
         "config": vars(args),
-        "effective_grpo_config": effective,  # TRL 实际使用的值（含默认值）
+        "effective_grpo_config": effective,  # the values TRL actually used (defaults included)
         "dropped_config_keys": dropped,
         "derived": {
             **batch_info,
@@ -688,17 +688,17 @@ def copy_to_drive(output_dir: Path, drive_dir: str, run_name: str) -> Path | Non
     if not drive_dir:
         return None
     if drive_dir.startswith("/content/drive") and not Path("/content/drive/MyDrive").exists():
-        print("[警告] Google Drive 似乎没有挂载（找不到 /content/drive/MyDrive），跳过复制。")
+        print("[warning] Google Drive doesn't seem to be mounted (no /content/drive/MyDrive), skipping the copy.")
         return None
     dest = Path(drive_dir) / run_name
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(output_dir, dest, dirs_exist_ok=True)
-    print(f"[保存] 已复制到 Google Drive：{dest}")
+    print(f"[save] copied to Google Drive: {dest}")
     return dest
 
 
 # ---------------------------------------------------------------------------
-# 主流程
+# Main
 # ---------------------------------------------------------------------------
 def main(argv=None) -> None:
     args = parse_args(argv)
@@ -716,36 +716,36 @@ def main(argv=None) -> None:
     gpu_tag = env["gpu_name"].replace("NVIDIA", "").strip().split()[0].replace("/", "-")
     run_name = args.run_name or f"{output_dir.name}_{gpu_tag}_{datetime.now():%Y%m%d_%H%M%S}"
 
-    # ---------------- 1. tokenizer + 数据 ----------------
-    # padding_side="left"：批量生成时 padding 放在左边，模型才能从 prompt 末尾接着写
+    # ---------------- 1. tokenizer + data ----------------
+    # padding_side="left": for batched generation the padding goes on the left so the model continues right from the end of the prompt
     tokenizer = AutoTokenizer.from_pretrained(args.model_name, padding_side="left")
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     raw_ds, train_ds = build_grpo_dataset(tokenizer, n=args.n_questions)
     print_samples(raw_ds, train_ds, tokenizer, index=0)
     prompt_stats = prompt_token_stats(tokenizer, train_ds)
-    args.n_questions = len(train_ds)  # n_questions=0 表示全部训练题；这里记下实际题数
+    args.n_questions = len(train_ds)  # n_questions=0 means all training questions; record the real count here
     if args.num_train_epochs > 0:
         args.max_steps = math.ceil(args.n_questions * args.num_train_epochs / batch_info["prompts_per_step"])
         print(
-            f"[步数] {args.n_questions} 题 × {args.num_train_epochs} epoch ÷ 每步 "
-            f"{batch_info['prompts_per_step']} 题 → max_steps = {args.max_steps}"
+            f"[steps] {args.n_questions} questions x {args.num_train_epochs} epoch / "
+            f"{batch_info['prompts_per_step']} questions per step -> max_steps = {args.max_steps}"
         )
 
-    # ---------------- 2. 量化 + LoRA 配置 ----------------
+    # ---------------- 2. quantization + LoRA config ----------------
     compute_dtype = torch.bfloat16 if env["use_bf16"] else torch.float16
     if args.quantization == "4bit":
         bnb_config = BitsAndBytesConfig(
             load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",  # QLoRA 论文用的 4-bit 格式
-            bnb_4bit_use_double_quant=True,  # 对量化常数再量化一次，再省一点显存
-            bnb_4bit_compute_dtype=compute_dtype,  # 实际矩阵乘法用 bf16（A100）或 fp16（T4）
+            bnb_4bit_quant_type="nf4",  # the 4-bit format from the QLoRA paper
+            bnb_4bit_use_double_quant=True,  # quantize the quantization constants too, saves a bit more memory
+            bnb_4bit_compute_dtype=compute_dtype,  # the actual matmuls run in bf16 (A100) or fp16 (T4)
         )
-        print("[量化] 4-bit nf4（QLoRA）")
+        print("[quantization] 4-bit nf4 (QLoRA)")
     else:
-        # 不量化：基座按 model_init_kwargs 里的 dtype（bf16 / fp16）加载，3B 模型约 6 GB
+        # no quantization: the base loads in the dtype from model_init_kwargs (bf16 / fp16), about 6 GB for a 3B model
         bnb_config = None
-        print(f"[量化] 不量化，基座用 {'bf16' if env['use_bf16'] else 'fp16'} + LoRA")
+        print(f"[quantization] none, base in {'bf16' if env['use_bf16'] else 'fp16'} + LoRA")
     target_modules = (
         "all-linear"
         if args.lora_target_modules.strip() == "all-linear"
@@ -760,11 +760,11 @@ def main(argv=None) -> None:
         task_type="CAUSAL_LM",
     )
 
-    # ---------------- 3. 打分函数 ----------------
+    # ---------------- 3. reward function ----------------
     grpo_config, dropped = make_grpo_config(args, env)
     tracker = RewardTracker()
-    # "回答已结束"的判断与 TRL 一致：最后一个 token 是结束符或 pad → 正常结束；否则 = 被截断
-    # Qwen 的结束符来自 generation_config（<|im_end|> 和 <|endoftext|>）
+    # "answer finished" is checked the same way TRL does: last token is EOS or pad -> finished; otherwise it got cut off
+    # Qwen's end tokens come from generation_config (<|im_end|> and <|endoftext|>)
     gen_cfg = GenerationConfig.from_pretrained(args.model_name)
     eos_ids = gen_cfg.eos_token_id
     eos_ids = [eos_ids] if isinstance(eos_ids, int) else list(eos_ids or [])
@@ -776,9 +776,9 @@ def main(argv=None) -> None:
         tokenizer=tokenizer,
     )
 
-    # ---------------- 4. 构造 GRPOTrainer ----------------
-    # 把模型名字符串 + quantization_config + peft_config 交给 TRL，由 TRL 负责：
-    #   加载模型（4-bit 或 bf16/fp16）→ 套上 LoRA → beta>0 时用"关掉 LoRA 的同一个模型"当参考模型（不额外占显存）
+    # ---------------- 4. build GRPOTrainer ----------------
+    # hand TRL the model name string + quantization_config + peft_config, and TRL takes care of:
+    #   loading the model (4-bit or bf16/fp16) -> adding LoRA -> when beta>0, using "the same model with LoRA off" as the reference (no extra memory)
     PilotMetricsCallback, StopAfterStepCallback = _make_callback_class()
     resume_ckpt = None
     if args.resume:
@@ -787,9 +787,9 @@ def main(argv=None) -> None:
         if Path(args.checkpoint_dir).is_dir():
             resume_ckpt = get_last_checkpoint(args.checkpoint_dir)
         if resume_ckpt:
-            print(f"[续跑] 找到 checkpoint：{resume_ckpt}")
+            print(f"[resume] found checkpoint: {resume_ckpt}")
         else:
-            print(f"[续跑] {args.checkpoint_dir} 里没有 checkpoint，从头开始训练")
+            print(f"[resume] no checkpoint in {args.checkpoint_dir}, starting from scratch")
     callback = PilotMetricsCallback(
         tracker, output_dir / "metrics.csv", args.max_steps, resume=resume_ckpt is not None
     )
@@ -797,66 +797,66 @@ def main(argv=None) -> None:
     stop_early = 0 < args.stop_after_step < args.max_steps
     if stop_early:
         if args.save_steps <= 0:
-            raise SystemExit("--stop_after_step 需要 --save_steps > 0（停下前要存 checkpoint，之后才能接着跑）")
+            raise SystemExit("--stop_after_step needs --save_steps > 0 (it has to save a checkpoint before stopping so you can pick it back up)")
         if resume_ckpt and int(Path(resume_ckpt).name.split("-")[-1]) >= args.stop_after_step:
-            raise SystemExit(f"[提前停] 已经有 {Path(resume_ckpt).name}，前 {args.stop_after_step} 步已经跑完；"
-                             f"要接着跑完请把 --stop_after_step 改成 0")
+            raise SystemExit(f"[early stop] {Path(resume_ckpt).name} already exists, so the first {args.stop_after_step} steps are done; "
+                             f"set --stop_after_step to 0 to finish the run")
         callbacks.append(StopAfterStepCallback(args.stop_after_step))
-        print(f"[提前停] 训练到第 {args.stop_after_step}/{args.max_steps} 步存 checkpoint 后停下（学习率计划不变）")
+        print(f"[early stop] will save a checkpoint and stop at step {args.stop_after_step}/{args.max_steps} (LR schedule unchanged)")
     trainer = GRPOTrainer(
         model=args.model_name,
-        reward_funcs=[reward_fn],  # 只有一个 0/1 正确性 reward，没有格式奖励
+        reward_funcs=[reward_fn],  # just the one 0/1 correctness reward, no format reward
         args=grpo_config,
         train_dataset=train_ds,
         processing_class=tokenizer,
-        quantization_config=bnb_config,  # None = 不量化
+        quantization_config=bnb_config,  # None = no quantization
         peft_config=lora_config,
         callbacks=callbacks,
     )
 
     model = trainer.model
-    # TRL 1.16 会把 QLoRA 的 LoRA 参数转成 bf16（不量化时 PEFT 默认就是 fp32）。这里按需转回 fp32：
-    #  - T4（fp16 混合精度）：必须是 fp32，否则 fp16 的梯度缩放/优化器会出问题
-    #  - A100：fp32 存储可避免 1e-5 这种小学习率的更新被 bf16 精度"舍入掉"；多占的显存 < 0.5 GB
+    # TRL 1.16 casts QLoRA's LoRA params to bf16 (without quantization PEFT already uses fp32). Cast back to fp32 if needed:
+    #  - T4 (fp16 mixed precision): has to be fp32, otherwise fp16 grad scaling / the optimizer break
+    #  - A100: fp32 storage keeps small-LR updates like 1e-5 from being "rounded away" in bf16; costs < 0.5 GB extra
     if args.lora_param_dtype == "fp32":
         n_cast = 0
         for _, p in model.named_parameters():
             if p.requires_grad and p.dtype != torch.float32:
                 p.data = p.data.float()
                 n_cast += 1
-        print(f"[LoRA] 已把 {n_cast} 个可训练张量转为 fp32")
+        print(f"[LoRA] cast {n_cast} trainable tensors to fp32")
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_total = sum(p.numel() for p in model.parameters())
-    packed_note = "（4-bit 权重按打包后计数）" if args.quantization == "4bit" else ""
-    print(f"[LoRA] 可训练参数 {n_train / 1e6:.1f}M / 总参数 {n_total / 1e6:.0f}M{packed_note}")
-    print(f"[显存] 模型加载后已分配 {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+    packed_note = " (4-bit weights counted as packed)" if args.quantization == "4bit" else ""
+    print(f"[LoRA] trainable params {n_train / 1e6:.1f}M / total {n_total / 1e6:.0f}M{packed_note}")
+    print(f"[memory] allocated after loading the model: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
 
-    # ---------------- 5. 训练前样例 ----------------
+    # ---------------- 5. samples before training ----------------
     sample_examples = [train_ds[i] for i in range(min(args.num_samples, len(train_ds)))]
-    samples = {"before": show_samples(model, tokenizer, sample_examples, args, "【训练前】生成样例")}
+    samples = {"before": show_samples(model, tokenizer, sample_examples, args, "[before training] sample answers")}
 
-    # ---------------- 6. 训练 ----------------
-    print(f"\n开始 GRPO 训练：{args.max_steps} 步 …")
+    # ---------------- 6. training ----------------
+    print(f"\nStarting GRPO training: {args.max_steps} steps ...")
     if args.save_steps > 0:
-        print(f"[checkpoint] 每 {args.save_steps} 步存到 {args.checkpoint_dir}（保留最近 {args.save_total_limit} 个）")
+        print(f"[checkpoint] every {args.save_steps} steps to {args.checkpoint_dir} (keeping the latest {args.save_total_limit})")
     t0 = time.perf_counter()
-    trainer.train(resume_from_checkpoint=resume_ckpt)  # 续跑时这次的耗时只算本次会话
+    trainer.train(resume_from_checkpoint=resume_ckpt)  # when resuming, the time only counts this session
     train_seconds = time.perf_counter() - t0
-    print(f"训练结束，用时 {train_seconds / 60:.1f} 分钟")
+    print(f"Training done in {train_seconds / 60:.1f} minutes")
     if stop_early and trainer.state.global_step < args.max_steps:
-        # 还没训练完：不存最终 adapter / 报告（免得被当成训练完的模型），只画到目前为止的曲线
+        # not finished yet: don't save a final adapter / report (so nobody mistakes it for a finished model), just plot the curves so far
         if callback.rows:
             plot_curves(callback.rows, args.max_completion_length, output_dir / "curves.png")
-        print(f"[提前停] 停在第 {trainer.state.global_step}/{args.max_steps} 步，checkpoint 在 {args.checkpoint_dir}。"
-              f"要接着跑完：去掉 --stop_after_step，加 --resume 原样重跑")
+        print(f"[early stop] stopped at step {trainer.state.global_step}/{args.max_steps}, checkpoint is in {args.checkpoint_dir}. "
+              f"To finish: drop --stop_after_step, add --resume and rerun the same command")
         return
 
-    # ---------------- 7. 训练后样例 ----------------
-    samples["after"] = show_samples(trainer.model, tokenizer, sample_examples, args, "【训练后】生成样例")
+    # ---------------- 7. samples after training ----------------
+    samples["after"] = show_samples(trainer.model, tokenizer, sample_examples, args, "[after training] sample answers")
 
-    # ---------------- 8. 保存 ----------------
+    # ---------------- 8. save ----------------
     adapter_dir = output_dir / "adapter"
-    trainer.save_model(str(adapter_dir))  # PEFT 模型只保存 LoRA adapter（几十 MB）
+    trainer.save_model(str(adapter_dir))  # a PEFT model only saves the LoRA adapter (tens of MB)
     tokenizer.save_pretrained(str(adapter_dir))
 
     report = build_report(
@@ -869,21 +869,21 @@ def main(argv=None) -> None:
         plot_curves(callback.rows, args.max_completion_length, output_dir / "curves.png")
 
     print("\n" + "=" * 80)
-    print("试跑总结")
+    print("Run summary")
     t = report["timing"]
     m = report["memory"]
-    print(f"  GPU: {env['gpu_name']} | 精度 {env['precision']} | TRL {env['trl']}")
-    print(f"  平均每步 {t['avg_step_time_s_excl_warmup']}s（跳过前 {t['warmup_steps_skipped']} 步）")
-    print(f"  显存峰值 allocated {m['peak_mem_allocated_gb_max_over_steps']} GB / reserved "
-          f"{m['peak_mem_reserved_gb_max_over_steps']} GB / 总 {m['gpu_total_memory_gb']} GB")
-    print(f"  reward：第一步 {report['reward']['first_step']} → 最后几步 "
+    print(f"  GPU: {env['gpu_name']} | precision {env['precision']} | TRL {env['trl']}")
+    print(f"  avg time per step {t['avg_step_time_s_excl_warmup']}s (skipping the first {t['warmup_steps_skipped']} steps)")
+    print(f"  peak memory allocated {m['peak_mem_allocated_gb_max_over_steps']} GB / reserved "
+          f"{m['peak_mem_reserved_gb_max_over_steps']} GB / total {m['gpu_total_memory_gb']} GB")
+    print(f"  reward: first step {report['reward']['first_step']} -> last steps "
           f"{list(report['reward'].values())[1]}")
-    print(f"  截断比例 {report['truncated_frac_mean']} | 组内全相同比例 {report['frac_groups_all_same_mean']}")
+    print(f"  truncation rate {report['truncated_frac_mean']} | all-same group share {report['frac_groups_all_same_mean']}")
     if "full_training_estimate_1_epoch" in report:
         e = report["full_training_estimate_1_epoch"]
-        print(f"  正式训练估算（{FULL_TRAIN_SIZE} 题 × 1 epoch，同样 batch）：{e['total_steps']} 步，"
-              f"≈ {e['gpu_hours']:.1f} GPU 小时")
-    print(f"  输出目录：{output_dir.resolve()}")
+        print(f"  full-run estimate ({FULL_TRAIN_SIZE} questions x 1 epoch, same batch): {e['total_steps']} steps, "
+              f"~ {e['gpu_hours']:.1f} GPU hours")
+    print(f"  output folder: {output_dir.resolve()}")
     print("=" * 80)
 
     copy_to_drive(output_dir, args.drive_dir, run_name)

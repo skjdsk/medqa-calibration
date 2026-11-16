@@ -1,16 +1,16 @@
 """
-train/grpo/test_rewards.py —— 打分函数的单元测试
+train/grpo/test_rewards.py -- unit tests for the reward function
 
-【这个文件做什么】
-用一堆"模拟的模型回答"检查答案提取和打分是否正确，例如：
-  - 标准格式、markdown 加粗、括号、全角冒号、小写 answer 等变体能否正确提取
-  - 回答中出现多个 "Answer:" 时是否取最后一个
-  - 没按格式回答 / 写了 E / "Answer: Doxycycline" 这种情况是否判为提取失败（reward = 0）
-  - 监控指标（格式正确率、组内全相同比例、截断比例）是否算对
+[What this file does]
+Feeds a bunch of fake model answers through answer extraction and scoring, e.g.:
+    - standard format, markdown bold, parentheses, full-width colon, lowercase 'answer', etc.
+    - when an answer has several "Answer:" lines, we take the last one
+    - no format / an E / "Answer: Doxycycline" all count as extraction failures (reward = 0)
+    - the tracked metrics (format rate, all-same group share, truncation rate) come out right
 
-运行（在 repo 根目录）：
+Run from the repo root:
     python -m pytest -q train/grpo/test_rewards.py
-不需要 GPU，也不需要下载模型。
+No GPU and no model download needed.
 """
 
 import sys
@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-# 让 "from train.grpo.rewards import ..." 在任何运行方式下都能找到模块
+# make "from train.grpo.rewards import ..." work however this gets run
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from train.grpo.rewards import (  # noqa: E402
@@ -31,21 +31,21 @@ from train.grpo.rewards import (  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# 1. 答案提取：各种回答格式
+# 1. Answer extraction: all kinds of formats
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize(
     "text, expected",
     [
-        # 标准格式
+        # standard format
         ("The patient has hypertension...\nAnswer: C", "C"),
         ("Answer: A", "A"),
-        ("推理……\nAnswer:B", "B"),  # 冒号后无空格
-        ("Step 1 ...\nAnswer: D\n", "D"),  # 结尾多一个换行
-        # 大小写 / 前缀变体
+        ("Reasoning...\nAnswer:B", "B"),  # no space after the colon
+        ("Step 1 ...\nAnswer: D\n", "D"),  # extra newline at the end
+        # case / prefix variants
         ("answer: B", "B"),
         ("ANSWER: C", "C"),
         ("Final Answer: A", "A"),
-        # markdown / 括号 / 标点
+        # markdown / parentheses / punctuation
         ("**Answer:** D", "D"),
         ("**Answer: B**", "B"),
         ("Answer: **C**", "C"),
@@ -53,11 +53,11 @@ from train.grpo.rewards import (  # noqa: E402
         ("Answer: (C) Hypertension", "C"),
         ("Answer: B. Metformin", "B"),
         ("Answer: D)", "D"),
-        ("Answer：C", "C"),  # 全角冒号
-        # 多个 Answer：取最后一个
+        ("Answer：C", "C"),  # full-width colon
+        # several Answers: take the last one
         ("At first I thought Answer: A, but on reflection...\nAnswer: C", "C"),
         ("I will end with 'Answer: X'.\nReasoning...\nAnswer: B", "B"),
-        # 选项后接逗号：取第一个字母（说明模型犹豫，按惯例取它写的第一个）
+        # option followed by a comma: take the first letter (the model is hedging; by convention we take what it wrote first)
         ("Answer: A, B", "A"),
     ],
 )
@@ -68,16 +68,16 @@ def test_extract_valid(text, expected):
 @pytest.mark.parametrize(
     "text",
     [
-        "",  # 空回答
-        "The answer is C.",  # 没有冒号：不算按格式回答
-        "I think C is correct.",  # 完全没有 Answer
-        "Answer: E",  # 不是 A–D
-        "Answer: a",  # 小写字母不算（可能是英文冠词 a）
-        "Answer: Doxycycline",  # 以 D 开头的单词，不能当成 D
-        "Answer: Atrial fibrillation",  # 以 A 开头的单词
-        "Answer: X",  # 照抄了格式说明里的占位符
-        "Answer:",  # 被截断，只写了一半
-        "The patient presents with ... and we must consider",  # 被截断的长推理
+        "",  # empty answer
+        "The answer is C.",  # no colon: doesn't follow the format
+        "I think C is correct.",  # no Answer at all
+        "Answer: E",  # not A-D
+        "Answer: a",  # lowercase doesn't count (could be the article "a")
+        "Answer: Doxycycline",  # a word starting with D is not D
+        "Answer: Atrial fibrillation",  # a word starting with A
+        "Answer: X",  # copied the placeholder from the instructions
+        "Answer:",  # cut off halfway
+        "The patient presents with ... and we must consider",  # long reasoning that got cut off
     ],
 )
 def test_extract_invalid(text):
@@ -85,26 +85,26 @@ def test_extract_invalid(text):
 
 
 def test_extract_handles_chat_format():
-    # 对话格式的 completion：[{"role": "assistant", "content": ...}]
+    # chat-format completion: [{"role": "assistant", "content": ...}]
     completion = [{"role": "assistant", "content": "Reasoning...\nAnswer: B"}]
     assert completion_to_text(completion) == "Reasoning...\nAnswer: B"
     assert extract_answer(completion) == "B"
 
 
 # ---------------------------------------------------------------------------
-# 2. 单条打分：只有 0/1，格式错误 = 0
+# 2. Scoring one answer: only 0/1, format error = 0
 # ---------------------------------------------------------------------------
 def test_score_correct_wrong_and_unformatted():
     assert score_completion("...\nAnswer: C", "C") == 1.0
-    assert score_completion("...\nAnswer: C", "c") == 1.0  # 标准答案大小写不敏感
+    assert score_completion("...\nAnswer: C", "c") == 1.0  # gold letter is case-insensitive
     assert score_completion("...\nAnswer: B", "C") == 0.0
-    assert score_completion("The answer is C", "C") == 0.0  # 没按格式 → 0，不给部分分
+    assert score_completion("The answer is C", "C") == 0.0  # wrong format -> 0, no partial credit
 
 
 # ---------------------------------------------------------------------------
-# 3. GRPOTrainer 调用的打分函数 + 监控指标
+# 3. The reward function GRPOTrainer calls + tracked metrics
 # ---------------------------------------------------------------------------
-EOS = 151645  # Qwen 的 <|im_end|> token id（这里只用于模拟）
+EOS = 151645  # Qwen's <|im_end|> token id (only used to fake things here)
 
 
 def test_reward_function_batch_and_tracker():
@@ -112,17 +112,17 @@ def test_reward_function_batch_and_tracker():
     logged = {}
     reward_fn = make_correctness_reward(tracker=tracker, max_completion_length=8, eos_token_ids=[EOS])
 
-    # 模拟 2 道题 × 每题 4 个回答（num_generations = 4），TRL 会把同一道题的回答排在一起
+    # fake 2 questions x 4 answers each (num_generations = 4); TRL keeps answers to the same question together
     prompts = ["Q1"] * 4 + ["Q2"] * 4
     completions = [
-        "...Answer: A",  # Q1 对
-        "...Answer: B",  # Q1 错
-        "...no answer",  # Q1 格式错误 → 0
-        "...Answer: A",  # Q1 对
-        "...Answer: C",  # Q2 错
-        "...Answer: C",  # Q2 错
-        "...Answer: C",  # Q2 错
-        "...truncated",  # Q2 被截断（格式错误）→ 0
+        "...Answer: A",  # Q1 right
+        "...Answer: B",  # Q1 wrong
+        "...no answer",  # Q1 format error -> 0
+        "...Answer: A",  # Q1 right
+        "...Answer: C",  # Q2 wrong
+        "...Answer: C",  # Q2 wrong
+        "...Answer: C",  # Q2 wrong
+        "...truncated",  # Q2 cut off (format error) -> 0
     ]
     answer = ["A"] * 4 + ["D"] * 4
     completion_ids = [
@@ -133,7 +133,7 @@ def test_reward_function_batch_and_tracker():
         [1, 2, EOS],
         [1, 2, 3, EOS],
         [1, EOS],
-        [1, 2, 3, 4, 5, 6, 7, 8],  # 长度 = 8 且最后不是 EOS → 截断
+        [1, 2, 3, 4, 5, 6, 7, 8],  # length = 8 and last token isn't EOS -> truncated
     ]
 
     rewards = reward_fn(
@@ -152,7 +152,7 @@ def test_reward_function_batch_and_tracker():
     assert stats["n_groups"] == 2
     assert stats["reward_mean"] == pytest.approx(2 / 8)
     assert stats["format_rate"] == pytest.approx(6 / 8)
-    # Q1 有对有错（有学习信号），Q2 全错（advantage 全为 0）→ 全相同比例 = 1/2
+    # Q1 is mixed (there's signal), Q2 is all wrong (advantages all 0) -> all-same share = 1/2
     assert stats["frac_groups_all_same"] == pytest.approx(0.5)
     assert stats["frac_groups_all_wrong"] == pytest.approx(0.5)
     assert stats["frac_groups_all_correct"] == pytest.approx(0.0)
@@ -160,11 +160,11 @@ def test_reward_function_batch_and_tracker():
     assert stats["mean_completion_tokens"] == pytest.approx(
         sum(len(x) for x in completion_ids) / 8
     )
-    # pop 之后清空，下一步重新统计
+    # pop clears it so the next step starts fresh
     assert len(tracker) == 0
 
 
 def test_reward_function_without_tracker_or_ids():
-    # 不传 tracker / completion_ids 也能正常打分（例如训练前后的样例展示）
+    # scoring still works without a tracker / completion_ids (e.g. showing samples before and after training)
     reward_fn = make_correctness_reward()
     assert reward_fn(prompts=["Q"] * 2, completions=["Answer: A", "Answer: B"], answer=["B", "B"]) == [0.0, 1.0]

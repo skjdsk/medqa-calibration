@@ -1,10 +1,10 @@
-"""eval/cot_eval.py 里纯 Python 工具的单元测试（不需要 GPU / vLLM）：python -m pytest -q eval/test_cot_eval.py"""
+"""Unit tests for the pure-Python helpers in eval/cot_eval.py (no GPU / vLLM needed): python -m pytest -q eval/test_cot_eval.py"""
 
 import math
 
 from eval.cot_eval import find_answer_token_index, letter_probs_from_logprobs, vote_probs
 
-# 假的词表：每个 token id 对应一段文字
+# fake vocab: each token id maps to a bit of text
 VOCAB = {1: "The", 2: " answer", 3: " is", 4: " A", 5: ".\n", 6: "Answer", 7: ":", 8: " C", 9: "B", 10: "**",
          11: " (", 12: " D"}
 LETTER_IDS = {"A": [4], "B": [9], "C": [8], "D": [12]}
@@ -15,12 +15,12 @@ def decode(ids):
 
 
 def test_finds_last_answer_letter():
-    ids = [6, 7, 4, 5, 6, 7, 8]  # "Answer: A.\nAnswer: C" → 取最后一个
+    ids = [6, 7, 4, 5, 6, 7, 8]  # "Answer: A.\nAnswer: C" -> take the last one
     assert find_answer_token_index(ids, LETTER_IDS, decode) == 6
 
 
 def test_ignores_letters_not_after_answer():
-    ids = [1, 2, 3, 4, 5]  # "The answer is A.\n" 没有冒号，不算按格式回答
+    ids = [1, 2, 3, 4, 5]  # "The answer is A.\n" has no colon, doesn't count as following the format
     assert find_answer_token_index(ids, LETTER_IDS, decode) is None
 
 
@@ -42,7 +42,7 @@ def test_vote_probs():
     assert vote_probs([None, None]) == {L: 0.25 for L in "ABCD"}
 
 
-# ---- 测试集 / 迁移数据集用的 prompt 和解析 ----
+# ---- prompts and parsing for the test set / transfer datasets ----
 import json  # noqa: E402
 
 from eval.cot_eval import (  # noqa: E402
@@ -53,7 +53,7 @@ from train.grpo.grpo_data import INSTRUCTION, build_prompt_text, format_user_mes
 
 
 class FakeTokenizer:
-    """apply_chat_template 直接把消息列表变成 JSON，便于逐字比较。"""
+    """apply_chat_template just turns the message list into JSON, so it can be compared character by character."""
 
     def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=True):
         return json.dumps(messages, ensure_ascii=False)

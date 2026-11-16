@@ -1,4 +1,4 @@
-"""data/medqa_split.py 的单元测试（不需要下载数据）：python -m pytest -q data/test_medqa_split.py"""
+"""Unit tests for data/medqa_split.py (no download needed): python -m pytest -q data/test_medqa_split.py"""
 
 from data.medqa_split import N_TRAIN, N_VAL, TOTAL_ROWS, load_split, load_split_indices, make_split
 
@@ -18,8 +18,8 @@ def test_sizes_and_disjoint():
 
 
 def test_same_order_as_datasets_shuffle():
-    # datasets 的 Dataset.shuffle(seed=42) 用的也是 np.random.default_rng(42).permutation，
-    # 所以试跑时 "shuffle(seed=42) 取前 64 题" 正好是训练集的前 64 题
+    # datasets' Dataset.shuffle(seed=42) also uses np.random.default_rng(42).permutation,
+    # so "shuffle(seed=42), take the first 64" in the pilot is exactly the first 64 training questions
     import numpy as np
 
     assert load_split_indices("train")[:64] == np.random.default_rng(42).permutation(TOTAL_ROWS)[:64].tolist()
