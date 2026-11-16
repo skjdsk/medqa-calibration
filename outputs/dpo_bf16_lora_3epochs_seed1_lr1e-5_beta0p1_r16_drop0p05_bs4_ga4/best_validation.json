@@ -1,0 +1,20 @@
+{
+  "step": 208,
+  "epoch": 1.0,
+  "metrics": {
+    "n": 500,
+    "accuracy": 0.51,
+    "mean_confidence": 0.9555240257382392,
+    "ece": 0.4458301958441734,
+    "brier": 0.9282628211398387,
+    "nll": 5.100253195176867,
+    "hc_wrong_rate": 0.41,
+    "hc_wrong_count": 205,
+    "mean_conf_wrong": 0.9465140100644559,
+    "hc_count": 435,
+    "hc_accuracy": 0.5287356321839081,
+    "mean_letter_mass": 0.9999477272033691,
+    "min_letter_mass": 0.9739181995391846
+  },
+  "seconds": 31.025710271999742
+}
