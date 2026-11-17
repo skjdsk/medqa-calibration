@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 1000" width="920" height="1000" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M1 1 L9 5 L1 9" fill="none" stroke="#7a7a7a" stroke-width="1.6"/>
+    </marker>
+    <style>
+      .line { stroke: #8a8a8a; stroke-width: 2; fill: none; }
+      .gray { fill: #f7f7f7; stroke: #d6d6d6; stroke-width: 1.2; }
+      .purple { fill: #eeedfc; stroke: #6d63c9; stroke-width: 1.2; }
+      .green { fill: #e5f4ee; stroke: #2f8a63; stroke-width: 1.2; }
+      .t { font-size: 19px; font-weight: 600; text-anchor: middle; }
+      .s { font-size: 14px; text-anchor: middle; }
+      .tg { fill: #1f1f1e; } .sg { fill: #55554f; }
+      .tp { fill: #2d2580; } .sp { fill: #4a42a8; }
+      .te { fill: #18553a; } .se { fill: #23704c; }
+    </style>
+  </defs>
+  <rect width="920" height="1000" fill="#ffffff"/>
+
+  <!-- data prep column -->
+  <rect class="gray" x="80" y="30" width="360" height="76" rx="10"/>
+  <text class="t tg" x="260" y="62">MedQA training set</text>
+  <text class="s sg" x="260" y="88">5000 train + 500 validation questions</text>
+
+  <path class="line" d="M260 106 V138" marker-end="url(#arrow)"/>
+  <rect class="gray" x="80" y="142" width="360" height="76" rx="10"/>
+  <text class="t tg" x="260" y="174">Qwen2.5-3B writes answers</text>
+  <text class="s sg" x="260" y="200">8 CoT answers per question</text>
+
+  <path class="line" d="M260 218 V250" marker-end="url(#arrow)"/>
+  <rect class="gray" x="80" y="254" width="360" height="76" rx="10"/>
+  <text class="t tg" x="260" y="286">Filter</text>
+  <text class="s sg" x="260" y="312">keep questions with both right and wrong answers</text>
+
+  <!-- GRPO goes straight from the training set -->
+  <path class="line" d="M440 68 H730 V408" marker-end="url(#arrow)"/>
+
+  <!-- training methods -->
+  <rect x="50" y="368" width="820" height="166" rx="14" fill="none" stroke="#b5b5b5" stroke-width="1.2" stroke-dasharray="6 5"/>
+  <text x="460" y="522" font-size="14" fill="#55554f" text-anchor="middle">bf16 LoRA, same base model and adapter rank</text>
+  <path class="line" d="M190 330 V408" marker-end="url(#arrow)"/>
+  <path class="line" d="M330 330 V350 H460 V408" marker-end="url(#arrow)"/>
+
+  <rect class="purple" x="70" y="412" width="240" height="84" rx="10"/>
+  <text class="t tp" x="190" y="446">SFT</text>
+  <text class="s sp" x="190" y="472">learn from correct answers</text>
+  <rect class="purple" x="340" y="412" width="240" height="84" rx="10"/>
+  <text class="t tp" x="460" y="446">DPO</text>
+  <text class="s sp" x="460" y="472">correct vs. wrong answer pairs</text>
+  <rect class="purple" x="610" y="412" width="240" height="84" rx="10"/>
+  <text class="t tp" x="730" y="446">GRPO</text>
+  <text class="s sp" x="730" y="472">its own answers, scored 1 / 0</text>
+
+  <path class="line" d="M460 534 V550" marker-end="url(#arrow)"/>
+  <rect class="purple" x="230" y="554" width="460" height="76" rx="10"/>
+  <text class="t tp" x="460" y="586">Tuning + final training</text>
+  <text class="s sp" x="460" y="612">hyperparameters picked on validation, 2 seeds per method</text>
+
+  <!-- evaluation -->
+  <path class="line" d="M460 630 V662" marker-end="url(#arrow)"/>
+  <rect class="green" x="230" y="666" width="460" height="76" rx="10"/>
+  <text class="t te" x="460" y="698">Evaluate 7 models (base + 6)</text>
+  <text class="s se" x="460" y="724">MedQA · MedMCQA · PubMedQA</text>
+
+  <path class="line" d="M290 742 V774" marker-end="url(#arrow)"/>
+  <path class="line" d="M630 742 V774" marker-end="url(#arrow)"/>
+  <rect class="green" x="120" y="778" width="330" height="76" rx="10"/>
+  <text class="t te" x="285" y="810">Direct answer (main)</text>
+  <text class="s se" x="285" y="836">accuracy, ECE, Brier, NLL</text>
+  <rect class="green" x="470" y="778" width="330" height="76" rx="10"/>
+  <text class="t te" x="635" y="810">CoT answer (secondary)</text>
+  <text class="s se" x="635" y="836">reason first, then answer</text>
+
+  <path class="line" d="M290 854 V886" marker-end="url(#arrow)"/>
+  <path class="line" d="M630 854 V886" marker-end="url(#arrow)"/>
+  <rect class="green" x="200" y="890" width="520" height="76" rx="10"/>
+  <text class="t te" x="460" y="922">Analysis</text>
+  <text class="s se" x="460" y="948">accuracy vs. confidence · where gains come from · confident mistakes</text>
+</svg>

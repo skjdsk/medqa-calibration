@@ -1,47 +1,53 @@
-# calibration (the eval part of the project repo)
+# Calibration of post-trained LLMs on medical QA
 
-Comparing how SFT / DPO / GRPO (QLoRA) affect the **calibration** of Qwen2.5-3B-Instruct on medical multiple-choice questions. This repo is the eval part.
+We fine-tune Qwen2.5-3B-Instruct on MedQA with three post-training methods (SFT, DPO and GRPO) and look at how each one changes **calibration**: does the model's confidence match how often it's actually right? Everything is tested on MedQA, and we also check transfer to MedMCQA and PubMedQA.
 
-## Overall pipeline
-![Pipeline diagram](docs/pipeline.webp)
+![Pipeline](docs/pipeline.svg)
 
-## Files
-| File | What it does |
+## What's where
+
+| Folder | What's in it |
 |---|---|
-| `data/medqa_split.py` + `data/medqa_split_seed42.json` | fixed split of the MedQA train split: 5000 training + 500 validation questions (shared by SFT / DPO / GRPO) |
-| `eval/data_loaders.py` | loads MedQA / MedMCQA / PubMedQA into one format (question, options, gold letter, id) |
-| `eval/evaluate.py` | loads the model in 4-bit (`--quantization none` for unquantized bf16; LoRA optional), gets probabilities from the option-letter logits, writes a per-question CSV |
-| `eval/cot_eval.py` | evaluates with the reasoning prompt from GRPO training (vLLM generation, letter probability after `Answer:` + sampled voting), writes the same CSV format |
-| `eval/metrics.py` | reads only the per-question CSVs, computes accuracy / ECE / Brier / NLL / confident-but-wrong etc., draws reliability diagrams |
-| `eval/test_metrics.py` | checks the metric formulas against small hand-worked examples |
-| `notebooks/eval_base.ipynb` | runs the eval on Colab in one go |
-| `train/grpo/grpo.py` | GRPO training script (TRL `GRPOTrainer`), logs time / memory / reward etc. |
-| `train/grpo/grpo_data.py` | loads the MedQA **train** split and builds the training prompts |
-| `train/grpo/rewards.py` | pulls out `Answer: X` and scores it 0/1; tracks format rate, share of groups where every reward is the same, etc. |
-| `train/grpo/test_rewards.py` | unit tests for the reward function |
-| `train/grpo/estimate.py` | (pilot only) estimates GPU hours for the full run from the pilot's measured time per step |
-| `notebooks/grpo_pilot.ipynb` | runs the GRPO pilot on Colab in one go |
-| `notebooks/grpo_train.ipynb` | runs full GRPO training on Colab (bf16 LoRA + vLLM, checkpoints on Drive, can resume after a disconnect) |
-| `notebooks/grpo_val_compare.ipynb` | compares base and GRPO on the 500 validation questions on Colab (direct answer + reason then answer) |
+| `data/` | the fixed MedQA split shared by all methods (5000 training + 500 validation questions) |
+| `eval/` | shared eval code: dataset loading, direct-answer and CoT scoring, calibration metrics, temperature scaling |
+| `train/` | training code for DPO (`train/dpo/`) and GRPO (`train/grpo/`) |
+| `notebooks/` | Colab notebooks that run each step, one folder per method: `base/`, `sft/`, `dpo/`, `grpo/` |
+| `results_summary/` | results, one folder per model: `base/`, `sft/`, `dpo/`, `grpo/`, each with its own README |
+| `outputs/` | the generated answers that SFT and DPO train on, plus raw DPO run outputs |
+| `docs/` | the pipeline figure |
 
-## Common commands (`cd calibration` first and run them from that folder)
+## The three methods
+
+| Method | What it learns from | Code | Results |
+|---|---|---|---|
+| SFT | correct answers written by the base model | `notebooks/sft/` | `results_summary/sft/` |
+| DPO | pairs of a correct and a wrong answer to the same question | `train/dpo/`, `notebooks/dpo/` | `results_summary/dpo/` |
+| GRPO | answers it writes itself during training, scored 1 if right and 0 if wrong | `train/grpo/`, `notebooks/grpo/` | `results_summary/grpo/` |
+
+The untrained model's results are in `results_summary/base/`.
+
+## Shared setup
+
+- Base model: Qwen2.5-3B-Instruct, trained with LoRA (r 16, alpha 32, dropout 0.05).
+- Training data: the 5000 training questions in `data/medqa_split_seed42.json`. The 500 validation questions are only used for tuning and are never trained on.
+- Eval data: MedQA test (1273 questions), MedMCQA validation (4183) and the expert-labeled PubMedQA set (1000).
+- Metrics: accuracy, ECE (15 bins), Brier score, NLL, and how often the model is wrong with confidence >= 0.9 (`eval/metrics.py`).
+
+## Running things
+
+Run these from the repo root.
+
 ```bash
-python -m pytest eval/test_metrics.py -q                      # check the metrics
-python -m pytest -q data/test_medqa_split.py                  # check the 5000/500 split
-python -m eval.data_loaders --dataset medqa --n 3             # just look at data samples
-python -m eval.evaluate --dataset medqa medmcqa pubmedqa \
-    --adapter /path/to/adapter --model_name sft_seed1 --out_dir results/
-python -m eval.evaluate --dataset medqa --medqa_subset val \
-    --adapter /path/to/adapter --model_name sft_seed1 --out_dir results/   # evaluate on the 500 validation questions
-python -m eval.cot_eval --adapter /path/to/adapter --model_name grpo_seed1 --out_dir results/   # reason then answer (GRPO prompt, needs vLLM)
-python -m eval.metrics --pred_csv "results/preds_*.csv" --out_dir results/metrics
+pip install -r requirements.txt
 
-python -m pytest -q train/grpo/test_rewards.py                # check the reward function
-python -m train.grpo.grpo --n_questions 64 --max_steps 30 --output_dir outputs/grpo_pilot   # GRPO pilot (needs a GPU)
+python -m pytest -q data eval/test_metrics.py eval/test_cot_eval.py train/grpo   # unit tests, no GPU needed
+
+python -m eval.data_loaders --dataset medqa --n 3                                 # look at a few questions
+python -m eval.evaluate --dataset medqa medmcqa pubmedqa \
+    --adapter /path/to/adapter --model_name my_model --out_dir results/           # direct-answer eval
+python -m eval.cot_eval --adapter /path/to/adapter --model_name my_model \
+    --out_dir results/                                                            # reason-then-answer eval (needs vLLM)
+python -m eval.metrics --pred_csv "results/preds_*.csv" --out_dir results/metrics # metrics + reliability diagrams
 ```
 
-## Per-question CSV columns
-`dataset, question_id, model_name, eval_mode, n_options, gold, pred, confidence, correct, letter_mass, n_prompt_tokens, prob_A … prob_E`
-- `prob_*`: probabilities normalized over the option letters (empty for options the question doesn't have)
-- `letter_mass`: total probability of all the option letters (both "A" and " A" spellings) over the whole vocab **before** normalizing; the closer to 1, the better the prompt is working
-- each CSV has a `_meta.json` next to it with the prompt version, quantization settings, library versions etc., to confirm all 7 models were run with exactly the same setup
+Each eval writes one CSV row per question (`dataset, question_id, model_name, eval_mode, gold, pred, confidence, correct, prob_A ...`) plus a `_meta.json` with the prompt version, precision and library versions, so runs can be checked for matching setups.

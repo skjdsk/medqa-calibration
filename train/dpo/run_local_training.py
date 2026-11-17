@@ -24,7 +24,7 @@ def main():
     parser.add_argument('--report-only', action='store_true', help='Refresh saved results without retraining.')
     options = parser.parse_args()
     repo = Path(__file__).resolve().parents[2]
-    notebook_path = repo / 'notebooks/dpo_train_local.ipynb'
+    notebook_path = repo / 'notebooks/dpo/dpo_train_local.ipynb'
     output = repo / 'outputs/dpo_local_pilot_execution'
     output.mkdir(parents=True, exist_ok=True)
     lock = output / 'notebook_runner.lock'

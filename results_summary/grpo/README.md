@@ -1,6 +1,6 @@
 # GRPO results
 
-Everything after the pilot runs. The pilot results live in `results_summary/grpo_pilot/` and `results_summary/grpo_pilot_bf16_vllm/`.
+Everything after the pilot runs. The pilot results are in `pilot/`: `pilot/qlora_t4/` (first try, QLoRA on a T4) and `pilot/bf16_vllm_a100/` (bf16 LoRA + vLLM on an A100, the setup we kept).
 
 ## Setup
 

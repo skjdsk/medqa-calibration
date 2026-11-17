@@ -1,0 +1,15 @@
+{
+  "n": 500,
+  "accuracy": 0.5,
+  "mean_confidence": 0.9514610224962234,
+  "ece": 0.45192199730873106,
+  "brier": 0.9293313733363311,
+  "nll": 5.300640971605288,
+  "hc_wrong_rate": 0.406,
+  "hc_wrong_count": 203,
+  "mean_conf_wrong": 0.9351211309432983,
+  "hc_count": 432,
+  "hc_accuracy": 0.5300925925925926,
+  "mean_letter_mass": 0.9999438819885254,
+  "min_letter_mass": 0.9719852209091187
+}

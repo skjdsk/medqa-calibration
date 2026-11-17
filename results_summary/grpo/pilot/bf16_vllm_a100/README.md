@@ -2,7 +2,7 @@
 
 **This isn't about results.** The point was to check that training works with vLLM speeding up generation, and to measure time per step and memory so we could estimate the cost of the full run. A model trained on 64 questions for 30 steps doesn't tell you anything, so **don't use the reward here to judge whether GRPO works**.
 
-The only real difference from `results_summary/grpo_pilot/` (T4, QLoRA, no vLLM) is: **the base model isn't quantized (bf16) + generation runs on vLLM**. Data and hyperparameters are exactly the same.
+The only real difference from `../qlora_t4/` (T4, QLoRA, no vLLM) is: **the base model isn't quantized (bf16) + generation runs on vLLM**. Data and hyperparameters are exactly the same.
 
 The full output (LoRA adapter, `train_log.txt`) isn't in the repo.
 
@@ -19,7 +19,7 @@ We tried QLoRA (4-bit) + vLLM on an A100 first (those results aren't in the repo
 
 Our best guess (it fits every metric): every step TRL merges LoRA into the 4-bit weights, syncs them to vLLM, then unmerges. The 4-bit rounding error piles up, so the model vLLM generates with drifts further and further from the one being trained, and TRL's importance-sampling correction pushes the loss weights down to almost 0. Without quantization this doesn't happen.
 
-Two other environment issues (handled in cell 4 of `notebooks/grpo_pilot.ipynb`): vLLM >= 0.28 dropped bitsandbytes support, so we pin `vllm==0.27.1`; and Colab's preinstalled torchao 0.10 makes peft error out when adding LoRA to an unquantized model, so we just uninstall it.
+Two other environment issues (handled in cell 4 of `notebooks/grpo/grpo_pilot.ipynb`): vLLM >= 0.28 dropped bitsandbytes support, so we pin `vllm==0.27.1`; and Colab's preinstalled torchao 0.10 makes peft error out when adding LoRA to an unquantized model, so we just uninstall it.
 
 ## Setup
 

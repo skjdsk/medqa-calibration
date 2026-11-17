@@ -1,6 +1,6 @@
 # DPO post-training evaluation
 
-Open `notebooks/dpo_evaluate.ipynb` from the repository. It runs locally in
+Open `notebooks/dpo/dpo_evaluate.ipynb` from the repository. It runs locally in
 `DL_Final` or in Colab. Execution flags default to `False`. The completed training
 notebook retains its Colab outputs, but baseline/training flags are disabled.
 

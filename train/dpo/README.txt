@@ -145,7 +145,7 @@ interface and messages; new DPO-specific code and notebook text are English.
 
 Notebook
 --------
-notebooks/dpo_train.ipynb supports local and Colab configuration, optional
+notebooks/dpo/dpo_train.ipynb supports local and Colab configuration, optional
 dependency installation, data-only checks, guarded training, and result plots.
 The current training notebooks have RUN_TRAINING=True; running the training cell starts the configured experiment.
 The notebook stores no executed training results in the repository initially.
@@ -160,7 +160,7 @@ equivalence. It downloads no model weights and does not train Qwen.
 
 One-time original-model baseline
 --------------------------------
-The first optional stage in notebooks/dpo_train.ipynb runs train.dpo.baseline.
+The first optional stage in notebooks/dpo/dpo_train.ipynb runs train.dpo.baseline.
 Set RUN_BASELINE=True for the first experiment, then leave it False to display
 saved results without loading a model. It evaluates all 500 fixed validation
 questions and the full official MedQA test split using direct-answer option

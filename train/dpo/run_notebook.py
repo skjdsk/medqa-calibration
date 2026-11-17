@@ -20,7 +20,7 @@ from jupyter_client.kernelspec import KernelSpecManager
 
 def main():
     repo = Path(__file__).resolve().parents[2]
-    notebook_path = repo / 'notebooks/dpo_prepare.ipynb'
+    notebook_path = repo / 'notebooks/dpo/dpo_prepare.ipynb'
     output = repo / 'outputs/notebook_execution'
     output.mkdir(parents=True, exist_ok=True)
     lock = output / 'notebook_runner.lock'

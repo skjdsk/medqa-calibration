@@ -1,0 +1,36 @@
+[
+  {
+    "variant": "raw",
+    "n": 250,
+    "accuracy": 0.528,
+    "mean_confidence": 0.9522813172340393,
+    "ece": 0.4336892342567443,
+    "brier": 0.8741592744774608,
+    "nll": 4.748365752313133,
+    "hc_wrong_rate": 0.38,
+    "hc_wrong_count": 95,
+    "mean_conf_wrong": 0.9347372989533311,
+    "hc_count": 216,
+    "hc_accuracy": 0.5601851851851852,
+    "mean_letter_mass": 0.9999107904434205,
+    "min_letter_mass": 0.9777085781097412,
+    "hc_coverage": 0.864
+  },
+  {
+    "variant": "temperature",
+    "n": 250,
+    "accuracy": 0.528,
+    "mean_confidence": 0.4956481613335449,
+    "ece": 0.08682589876443476,
+    "brier": 0.6036732390811219,
+    "nll": 1.1341243111626176,
+    "hc_wrong_rate": 0.0,
+    "hc_wrong_count": 0,
+    "mean_conf_wrong": 0.451459749965198,
+    "hc_count": 0,
+    "hc_accuracy": null,
+    "mean_letter_mass": 0.9999107904434205,
+    "min_letter_mass": 0.9777085781097412,
+    "hc_coverage": 0.0
+  }
+]
