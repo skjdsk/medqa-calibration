@@ -32,6 +32,7 @@ We tried 4 learning rates with seed 1. lr 5e-5 and 2e-4 only ran for 300 steps, 
 
 - `training/seed1_vs_seed2_curves.png` compares them. The two seeds shuffle the questions differently, so don't read the reward curves step by step, just look at the overall trend.
 - Per-step logs are in `training/<run>/metrics.csv`, and the plots made during training are in `training/<run>/curves.png`.
+- `training/loss_kl_reward_curves.png`: loss, KL, reward and gradient norm for both lr 1e-4 seeds. The loss stays around 0, KL levels off around 0.01, and the reward stays around 0.5.
 
 ## 3. Validation set (500 questions, `eval_val/`)
 

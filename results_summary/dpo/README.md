@@ -14,6 +14,7 @@ One DPO run: bf16 LoRA (r 16, dropout 0.05), lr 1e-5, beta 0.1, 3 epochs, seed 1
 | `validation/step_*_metrics.json` | validation metrics at each epoch |
 | `validation/step_*_predictions.csv` | per-question validation predictions |
 | `validation/step_*_reliability.csv` | calibration bins for the reliability diagrams |
+| `loss_curves.png` | loss, preference accuracy, reward margin and gradient norm over the 3 epochs |
 
 ## `temperature_scaling/`
 
